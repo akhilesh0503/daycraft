@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daycraft</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ══════════ NAV ══════════ -->
+<nav class="topnav">
+  <div class="logo">Daycraft</div>
+  <div class="nav-links">
+    <button class="nav-btn" data-page="setup"    onclick="Nav.go('setup')">Setup</button>
+    <button class="nav-btn" data-page="generate" onclick="Nav.go('generate')">Generate</button>
+    <button class="nav-btn" data-page="calendar" onclick="Nav.go('calendar')">Calendar</button>
+  </div>
+  <div class="nav-right">
+    <span id="clock-time" class="clock-time">--:--:--</span>
+    <span id="clock-date" class="clock-date">Tempe, AZ</span>
+  </div>
+</nav>
+
+<main class="main-wrap">
+
+<!-- ══════════ PAGE: SETUP ══════════ -->
+<div class="page active" id="page-setup">
+  <div class="setup-wrap">
+    <div class="hero">
+      <p class="eyebrow">Your interest-first planner</p>
+      <h1 class="hero-title">Built around <em>you.</em></h1>
+      <p class="hero-sub">Set your profile once. Generate a day or week anytime — edit, swap, reorder everything.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-num">01</div>
+      <div class="card-body">
+        <div class="card-title-row"><h2 class="card-title">Default mood</h2><span class="badge-opt">Optional</span></div>
+        <p class="card-sub">Can be overridden when generating.</p>
+        <div class="mood-grid" id="mood-grid">
+          <button class="mood-chip" data-mood="Energised" onclick="Setup.mood(this)"><span class="mdot" style="background:var(--teal)"></span>Energised</button>
+          <button class="mood-chip" data-mood="Focused"   onclick="Setup.mood(this)"><span class="mdot" style="background:var(--blue)"></span>Focused</button>
+          <button class="mood-chip" data-mood="Relaxed"   onclick="Setup.mood(this)"><span class="mdot" style="background:var(--purple)"></span>Relaxed</button>
+          <button class="mood-chip" data-mood="Creative"  onclick="Setup.mood(this)"><span class="mdot" style="background:var(--pink)"></span>Creative</button>
+          <button class="mood-chip" data-mood="Tired"     onclick="Setup.mood(this)"><span class="mdot" style="background:var(--coral)"></span>Tired</button>
+          <button class="mood-chip" data-mood="Anxious"   onclick="Setup.mood(this)"><span class="mdot" style="background:var(--amber)"></span>Anxious</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">02</div>
+      <div class="card-body">
+        <div class="card-title-row"><h2 class="card-title">Default energy</h2><span class="badge-opt">Optional</span></div>
+        <div class="energy-row">
+          <span class="elbl">Low</span>
+          <input type="range" min="1" max="10" value="6" id="energy-slider" step="1" oninput="Setup.energy(this.value)">
+          <span class="energy-val" id="energy-val">6/10</span>
+          <span class="elbl">High</span>
+        </div>
+        <p class="energy-hint" id="energy-hint">Balanced — mix of focus and lighter activities.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">03</div>
+      <div class="card-body">
+        <h2 class="card-title">Interests & hobbies</h2>
+        <p class="card-sub">Add anything. These shape every generated schedule.</p>
+        <div class="presets">
+          <button class="preset" onclick="Setup.addPreset('Reading')">+ Reading</button>
+          <button class="preset" onclick="Setup.addPreset('Gym')">+ Gym</button>
+          <button class="preset" onclick="Setup.addPreset('Coding')">+ Coding</button>
+          <button class="preset" onclick="Setup.addPreset('Meditation')">+ Meditation</button>
+          <button class="preset" onclick="Setup.addPreset('Journaling')">+ Journaling</button>
+          <button class="preset" onclick="Setup.addPreset('Music')">+ Music</button>
+          <button class="preset" onclick="Setup.addPreset('Walking')">+ Walking</button>
+          <button class="preset" onclick="Setup.addPreset('Drawing')">+ Drawing</button>
+          <button class="preset" onclick="Setup.addPreset('Gaming')">+ Gaming</button>
+          <button class="preset" onclick="Setup.addPreset('Cooking')">+ Cooking</button>
+          <button class="preset" onclick="Setup.addPreset('Yoga')">+ Yoga</button>
+          <button class="preset" onclick="Setup.addPreset('Photography')">+ Photography</button>
+        </div>
+        <div class="irow">
+          <input type="text" id="interest-inp" class="tinput" placeholder="Type anything..." onkeydown="if(event.key==='Enter')Setup.addInterest()">
+          <button class="addbtn" onclick="Setup.addInterest()">Add</button>
+        </div>
+        <div class="tags" id="interest-tags"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">04</div>
+      <div class="card-body">
+        <h2 class="card-title">Recurring weekly activities</h2>
+        <p class="card-sub">Gym on Mon/Wed/Fri, Class on Tue/Thu — auto-placed in every generated week.</p>
+        <div id="rec-list"></div>
+        <div class="rec-input">
+          <input type="text" id="rec-name" class="tinput" placeholder="Activity name...">
+          <input type="time" id="rec-start" class="timeinput" value="07:00">
+          <span class="tlbl">to</span>
+          <input type="time" id="rec-end" class="timeinput" value="08:00">
+        </div>
+        <div class="day-picker" id="day-picker">
+          <button class="dpbtn" data-d="1" onclick="Setup.toggleDay(this)">Mon</button>
+          <button class="dpbtn" data-d="2" onclick="Setup.toggleDay(this)">Tue</button>
+          <button class="dpbtn" data-d="3" onclick="Setup.toggleDay(this)">Wed</button>
+          <button class="dpbtn" data-d="4" onclick="Setup.toggleDay(this)">Thu</button>
+          <button class="dpbtn" data-d="5" onclick="Setup.toggleDay(this)">Fri</button>
+          <button class="dpbtn" data-d="6" onclick="Setup.toggleDay(this)">Sat</button>
+          <button class="dpbtn" data-d="0" onclick="Setup.toggleDay(this)">Sun</button>
+        </div>
+        <button class="addbtn" onclick="Setup.addRecurring()">Add Recurring</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">05</div>
+      <div class="card-body">
+        <h2 class="card-title">Default blocked times</h2>
+        <p class="card-sub">Sleep, commute, fixed classes — applied to every generated schedule.</p>
+        <div id="blocked-list"></div>
+        <div class="block-row">
+          <input type="text" id="block-name" class="tinput block-name" placeholder="Label (Sleep, Class...)">
+          <input type="time" id="block-start" class="timeinput" value="22:00">
+          <span class="tlbl">to</span>
+          <input type="time" id="block-end" class="timeinput" value="07:00">
+          <button class="addbtn" onclick="Setup.addBlock()">Add</button>
+        </div>
+        <div class="quick-row">
+          <button class="qbtn" onclick="Setup.quickBlock('Sleep','22:30','07:00')">+ Sleep</button>
+          <button class="qbtn" onclick="Setup.quickBlock('School','09:00','15:00')">+ School</button>
+          <button class="qbtn" onclick="Setup.quickBlock('Work','09:00','17:00')">+ Work</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">06</div>
+      <div class="card-body">
+        <h2 class="card-title">Groq API Key</h2>
+        <p class="card-sub">Free at <a href="https://console.groq.com/keys" target="_blank" class="alink">console.groq.com/keys</a>. Stored locally only.</p>
+        <div class="irow">
+          <input type="password" id="apikey-inp" class="tinput" placeholder="gsk_..." oninput="Setup.apiKey(this.value)">
+          <button class="addbtn" onclick="Setup.toggleKey()">Show</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">07</div>
+      <div class="card-body">
+        <h2 class="card-title">Data backup</h2>
+        <p class="card-sub">Export all your schedules and reminders to a JSON file. Import to restore.</p>
+        <div class="backup-row">
+          <button class="addbtn" onclick="Storage.export()">Export backup</button>
+          <button class="addbtn" onclick="Storage.importClick()">Import backup</button>
+          <input type="file" id="import-file" accept=".json" style="display:none" onchange="Storage.importFile(this)">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ PAGE: GENERATE ══════════ -->
+<div class="page" id="page-generate">
+  <div class="gen-wrap">
+
+    <!-- TAB SWITCHER -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-day"  onclick="GenPage.switchTab('day')">Single Day</button>
+      <button class="tab-btn"        id="tab-week" onclick="GenPage.switchTab('week')">Week (1–7 days)</button>
+    </div>
+
+    <!-- ── DAY TAB ── -->
+    <div class="tab-panel active" id="panel-day">
+      <div class="gen-section">
+        <h3 class="gen-section-title">Which day?</h3>
+        <div class="date-pick-row">
+          <button class="date-opt active" id="day-opt-today" onclick="GenPage.dayOpt('today')">Today</button>
+          <button class="date-opt" id="day-opt-pick"  onclick="GenPage.dayOpt('pick')">Pick a date</button>
+          <input type="date" id="day-date-pick" class="timeinput" style="display:none">
+        </div>
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Start time</h3>
+        <div class="date-pick-row">
+          <button class="date-opt active" id="start-opt-now"  onclick="GenPage.startOpt('now')">Start from now</button>
+          <button class="date-opt"        id="start-opt-pick" onclick="GenPage.startOpt('pick')">Pick a time</button>
+          <input type="time" id="day-start-pick" class="timeinput" style="display:none" value="08:00">
+        </div>
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">End time</h3>
+        <input type="time" id="day-end-pick" class="timeinput" value="23:00">
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Override mood & energy <span class="badge-opt">Optional</span></h3>
+        <div class="override-row">
+          <select class="tinput sel" id="day-mood">
+            <option value="">Use default mood</option>
+            <option>Energised</option><option>Focused</option><option>Relaxed</option>
+            <option>Creative</option><option>Tired</option><option>Anxious</option>
+          </select>
+          <div class="energy-mini">
+            <span class="elbl">Energy</span>
+            <input type="range" min="1" max="10" value="6" id="day-energy" step="1" oninput="document.getElementById('day-energy-val').textContent=this.value">
+            <span id="day-energy-val" class="energy-val">6</span>
+          </div>
+        </div>
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Extra tasks for this day <span class="badge-opt">Optional</span></h3>
+        <div class="irow">
+          <input type="text" id="day-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addDayTask()">
+          <button class="addbtn" onclick="GenPage.addDayTask()">Add</button>
+        </div>
+        <div class="tags" id="day-task-tags"></div>
+      </div>
+      <button class="gen-cta" id="gen-day-btn" onclick="GenPage.generateDay()">
+        <span class="gen-cta-main">Generate Day Schedule</span>
+        <span class="gen-cta-sub">AI builds your day around your interests</span>
+      </button>
+    </div>
+
+    <!-- ── WEEK TAB ── -->
+    <div class="tab-panel" id="panel-week">
+      <div class="gen-section">
+        <h3 class="gen-section-title">Start date</h3>
+        <div class="date-pick-row">
+          <button class="date-opt active" id="week-opt-today" onclick="GenPage.weekStartOpt('today')">From today</button>
+          <button class="date-opt" id="week-opt-pick" onclick="GenPage.weekStartOpt('pick')">Pick date</button>
+          <input type="date" id="week-start-pick" class="timeinput" style="display:none">
+        </div>
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">How many days? <span class="badge-val" id="week-days-val">7 days</span></h3>
+        <input type="range" min="1" max="7" value="7" id="week-days-slider" step="1" class="full-range" oninput="GenPage.weekDaysChange(this.value)">
+        <div class="range-labels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span></div>
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Daily start time</h3>
+        <input type="time" id="week-start-time" class="timeinput" value="07:00">
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Daily end time</h3>
+        <input type="time" id="week-end-time" class="timeinput" value="22:30">
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Override mood & energy <span class="badge-opt">Optional</span></h3>
+        <div class="override-row">
+          <select class="tinput sel" id="week-mood">
+            <option value="">Use default mood</option>
+            <option>Energised</option><option>Focused</option><option>Relaxed</option>
+            <option>Creative</option><option>Tired</option><option>Anxious</option>
+          </select>
+          <div class="energy-mini">
+            <span class="elbl">Energy</span>
+            <input type="range" min="1" max="10" value="6" id="week-energy" step="1" oninput="document.getElementById('week-energy-val').textContent=this.value">
+            <span id="week-energy-val" class="energy-val">6</span>
+          </div>
+        </div>
+      </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Extra tasks for this week <span class="badge-opt">Optional</span></h3>
+        <div class="irow">
+          <input type="text" id="week-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addWeekTask()">
+          <button class="addbtn" onclick="GenPage.addWeekTask()">Add</button>
+        </div>
+        <div class="tags" id="week-task-tags"></div>
+      </div>
+      <button class="gen-cta week-cta" id="gen-week-btn" onclick="GenPage.generateWeek()">
+        <span class="gen-cta-main">Generate Week Schedule</span>
+        <span class="gen-cta-sub" id="week-cta-sub">Generating 7 days from today</span>
+      </button>
+    </div>
+
+    <!-- GENERATING INDICATOR -->
+    <div id="gen-loading" style="display:none" class="gen-loading">
+      <div class="spinner"></div>
+      <p class="gen-loading-main" id="gen-loading-main">Generating...</p>
+      <p class="gen-loading-sub"  id="gen-loading-sub">Building your schedule</p>
+    </div>
+
+    <!-- GENERATED SCHEDULE PREVIEW -->
+    <div id="gen-result" style="display:none">
+      <div class="result-header">
+        <h3 class="result-title" id="result-title">Schedule ready</h3>
+        <button class="pill-btn" onclick="Nav.go('calendar')">View in Calendar →</button>
+      </div>
+      <div id="result-day-cards" class="result-day-cards"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════ PAGE: CALENDAR ══════════ -->
+<div class="page" id="page-calendar">
+  <div class="cal-outer">
+
+    <!-- LEFT: mini calendar + reminders -->
+    <div class="cal-left">
+      <div class="cal-left-header">
+        <h2 class="cal-title">Calendar</h2>
+        <button class="accent-btn" onclick="CalPage.openReminderModal()">+ Reminder</button>
+      </div>
+
+      <!-- mini cal -->
+      <div class="mini-cal" id="mini-cal"></div>
+
+      <!-- reminders panel -->
+      <div class="reminders-panel">
+        <div class="rem-panel-header">
+          <h3 class="rem-panel-title" id="rem-panel-title">All reminders</h3>
+          <div class="rem-filters">
+            <button class="rfbtn active" data-f="all"       onclick="CalPage.filter(this,'all')">All</button>
+            <button class="rfbtn" data-f="today"    onclick="CalPage.filter(this,'today')">Today</button>
+            <button class="rfbtn" data-f="high"     onclick="CalPage.filter(this,'high')">High</button>
+            <button class="rfbtn" data-f="recurring" onclick="CalPage.filter(this,'recurring')">Recurring</button>
+          </div>
+        </div>
+        <div id="reminders-list"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: day detail -->
+    <div class="cal-right" id="cal-right">
+      <div class="cal-right-empty" id="cal-right-empty">
+        <p>Click a day to see its schedule and reminders.</p>
+      </div>
+      <div id="cal-right-content" style="display:none">
+        <div class="cal-day-header">
+          <div>
+            <h3 class="cal-day-title" id="cal-day-title"></h3>
+            <p class="cal-day-meta"  id="cal-day-meta"></p>
+          </div>
+          <div class="cal-day-actions">
+            <select class="tinput sel sm" id="cal-day-mood" onchange="CalPage.updateDayMood(this.value)">
+              <option value="">Mood</option>
+              <option>Energised</option><option>Focused</option><option>Relaxed</option>
+              <option>Creative</option><option>Tired</option><option>Anxious</option>
+            </select>
+            <button class="pill-btn" onclick="CalPage.regenDay()">↺ Regen day</button>
+            <button class="accent-btn sm" onclick="CalPage.openReminderModal()">+ Reminder</button>
+          </div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-track"><div class="progress-fill" id="cal-progress-fill"></div></div>
+          <span class="progress-lbl" id="cal-progress-lbl">0 / 0 done</span>
+        </div>
+        <div class="cal-split">
+          <div class="cal-split-sched">
+            <h4 class="split-title">Schedule</h4>
+            <div class="timeline" id="cal-timeline"><div class="tl-line"></div></div>
+          </div>
+          <div class="cal-split-rems">
+            <h4 class="split-title">Reminders</h4>
+            <div id="cal-day-reminders"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</main>
+
+<!-- ══════════ BLOCK EDIT MODAL ══════════ -->
+<div class="overlay" id="block-edit-overlay" onclick="Modals.closeBlock(event)">
+  <div class="modal" id="block-edit-modal">
+    <div class="modal-hdr">
+      <h3 class="modal-title">Edit Activity</h3>
+      <button class="modal-x" onclick="Modals.closeBlock()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label class="flbl">Title</label><input type="text" id="be-title" class="tinput full"></div>
+      <div class="fg"><label class="flbl">Description</label><textarea id="be-desc" class="tinput full tarea"></textarea></div>
+      <div class="frow">
+        <div class="fg"><label class="flbl">Start time</label><input type="time" id="be-start" class="timeinput full"></div>
+        <div class="fg"><label class="flbl">End time</label><input type="time" id="be-end" class="timeinput full"></div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label class="flbl">Category</label>
+          <input type="text" id="be-category" class="tinput full" placeholder="e.g. fitness, study...">
+        </div>
+        <div class="fg">
+          <label class="flbl">Color</label>
+          <select id="be-color" class="tinput full sel">
+            <option value="teal">Teal (wellness)</option>
+            <option value="purple">Purple (hobbies)</option>
+            <option value="blue">Blue (focus)</option>
+            <option value="coral">Coral (tasks)</option>
+            <option value="pink">Pink (social)</option>
+            <option value="amber">Amber (meals)</option>
+            <option value="gray">Gray (breaks)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <button class="cancel-btn" onclick="Modals.closeBlock()">Cancel</button>
+      <button class="save-btn" onclick="Modals.saveBlock()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ ADD ACTIVITY MODAL ══════════ -->
+<div class="overlay" id="add-act-overlay" onclick="Modals.closeAdd(event)">
+  <div class="modal" id="add-act-modal">
+    <div class="modal-hdr">
+      <h3 class="modal-title">Add Activity</h3>
+      <button class="modal-x" onclick="Modals.closeAdd()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label class="flbl">Title</label><input type="text" id="aa-title" class="tinput full" placeholder="Activity name..."></div>
+      <div class="fg"><label class="flbl">Description</label><textarea id="aa-desc" class="tinput full tarea" placeholder="What will you do?"></textarea></div>
+      <div class="frow">
+        <div class="fg"><label class="flbl">Start time</label><input type="time" id="aa-start" class="timeinput full" value="10:00"></div>
+        <div class="fg"><label class="flbl">End time</label><input type="time" id="aa-end" class="timeinput full" value="11:00"></div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label class="flbl">Category</label>
+          <input type="text" id="aa-category" class="tinput full" placeholder="e.g. fitness, study...">
+        </div>
+        <div class="fg">
+          <label class="flbl">Color</label>
+          <select id="aa-color" class="tinput full sel">
+            <option value="teal">Teal</option><option value="purple">Purple</option>
+            <option value="blue">Blue</option><option value="coral">Coral</option>
+            <option value="pink">Pink</option><option value="amber" selected>Amber</option>
+            <option value="gray">Gray</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <button class="cancel-btn" onclick="Modals.closeAdd()">Cancel</button>
+      <button class="save-btn" onclick="Modals.saveAdd()">Add Activity</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ REMINDER MODAL ══════════ -->
+<div class="overlay" id="rem-overlay" onclick="Modals.closeRem(event)">
+  <div class="modal" id="rem-modal">
+    <div class="modal-hdr">
+      <h3 class="modal-title" id="rem-modal-title">Add Reminder</h3>
+      <button class="modal-x" onclick="Modals.closeRem()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label class="flbl">Title</label><input type="text" id="rm-title" class="tinput full" placeholder="Reminder..."></div>
+      <div class="frow">
+        <div class="fg"><label class="flbl">Date</label><input type="date" id="rm-date" class="tinput full"></div>
+        <div class="fg"><label class="flbl">Time</label><input type="time" id="rm-time" class="timeinput full" value="09:00"></div>
+      </div>
+      <div class="fg">
+        <label class="flbl">Priority</label>
+        <div class="pri-row">
+          <button class="pribtn" data-p="low"    onclick="Modals.setPri(this)">Low</button>
+          <button class="pribtn" data-p="medium" onclick="Modals.setPri(this)">Medium</button>
+          <button class="pribtn active" data-p="high" onclick="Modals.setPri(this)">High</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="flbl">Color</label>
+        <div class="color-swatches" id="rem-colors">
+          <button class="cswatch" data-c="teal"   onclick="Modals.setRemColor(this)" style="background:var(--teal)"></button>
+          <button class="cswatch" data-c="purple" onclick="Modals.setRemColor(this)" style="background:var(--purple)"></button>
+          <button class="cswatch" data-c="coral"  onclick="Modals.setRemColor(this)" style="background:var(--coral)"></button>
+          <button class="cswatch" data-c="blue"   onclick="Modals.setRemColor(this)" style="background:var(--blue)"></button>
+          <button class="cswatch" data-c="pink"   onclick="Modals.setRemColor(this)" style="background:var(--pink)"></button>
+          <button class="cswatch active" data-c="amber" onclick="Modals.setRemColor(this)" style="background:var(--amber)"></button>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="flbl">Repeat</label>
+        <select id="rm-repeat" class="tinput full sel">
+          <option value="none">No repeat</option>
+          <option value="daily">Every day</option>
+          <option value="weekly">Every week</option>
+          <option value="weekdays">Weekdays only</option>
+          <option value="weekends">Weekends only</option>
+          <option value="monthly">Every month</option>
+        </select>
+      </div>
+      <div class="fg"><label class="flbl">Notes</label><textarea id="rm-notes" class="tinput full tarea" placeholder="Any notes..."></textarea></div>
+    </div>
+    <div class="modal-ftr">
+      <button class="cancel-btn" onclick="Modals.closeRem()">Cancel</button>
+      <button class="save-btn" onclick="Modals.saveRem()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

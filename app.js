@@ -1,0 +1,1025 @@
+/* ═══════════════════════════════════════════
+   DAYCRAFT v3 — app.js
+   Modules: Store, Utils, Clock, Nav,
+            Setup, GenPage, CalPage, Modals, AI, Fallback
+   ═══════════════════════════════════════════ */
+
+/* ─── STORE ─── */
+const Store = (() => {
+  const KEY = 'daycraft_v3';
+  let d = {
+    mood:'', energy:6, interests:[], blocked:[], tasks:[], recurring:[], apiKey:'',
+    schedules:{},   // dateKey => [{...item, done}]
+    dayMoods:{},    // dateKey => mood string
+    reminders:[],
+    streak:0, streakDays:[0,0,0,0,0,0,0], lastStreakDate:''
+  };
+  const load = () => { try { const r=localStorage.getItem(KEY); if(r) Object.assign(d,JSON.parse(r)); } catch(e){} };
+  const save = () => { try { localStorage.setItem(KEY,JSON.stringify(d)); } catch(e){} };
+  const get  = () => d;
+  return { load, save, get };
+})();
+
+/* ─── UTILS ─── */
+const U = {
+  t2m(t){ if(!t) return 0; const[h,m]=t.split(':').map(Number); return h*60+m; },
+  mins(s,e){ let a=this.t2m(s),b=this.t2m(e); if(b<a)b+=1440; return b-a; },
+  dateKey(d){ return d.toLocaleDateString('en-CA',{timeZone:'America/Phoenix'}); },
+  nowKey(){ return this.dateKey(new Date()); },
+  nowTime(){
+    const n=new Date();
+    return n.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Phoenix'});
+  },
+  fmtDate(k){ const d=new Date(k+'T12:00:00'); return d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}); },
+  shortDate(k){ const d=new Date(k+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); },
+  dayName(k){ return new Date(k+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'}); },
+  shortDay(k){ return new Date(k+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'}); },
+  dayNum(k){ return new Date(k+'T12:00:00').getDate(); },
+  dowNum(k){ return new Date(k+'T12:00:00').getDay(); },
+  addDays(k,n){ const d=new Date(k+'T12:00:00'); d.setDate(d.getDate()+n); return this.dateKey(d); },
+  isWeekend(k){ const d=this.dowNum(k); return d===0||d===6; },
+  esc(s){ return String(s).replace(/'/g,"&#39;").replace(/"/g,'&quot;'); },
+  toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800); },
+  uid(){ return 'id_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
+};
+
+/* ─── CLOCK ─── */
+const Clock = {
+  init(){
+    this.tick();
+    setInterval(()=>this.tick(), 1000);
+  },
+  tick(){
+    const n=new Date();
+    const t=n.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'America/Phoenix'});
+    const d=n.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/Phoenix'});
+    const te=document.getElementById('clock-time'), de=document.getElementById('clock-date');
+    if(te) te.textContent=t;
+    if(de) de.textContent=d+' · Tempe, AZ';
+  }
+};
+
+/* ─── NAV ─── */
+const Nav = {
+  go(page){
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    document.getElementById('page-'+page).classList.add('active');
+    const b=document.querySelector(`.nav-btn[data-page="${page}"]`);
+    if(b) b.classList.add('active');
+    if(page==='calendar') CalPage.render();
+    if(page==='generate') GenPage.init();
+  }
+};
+
+/* ─── STORAGE EXPORT/IMPORT ─── */
+const Storage = {
+  export(){
+    const data=JSON.stringify(Store.get(),null,2);
+    const blob=new Blob([data],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='daycraft-backup.json'; a.click();
+    URL.revokeObjectURL(url);
+    U.toast('Backup exported!');
+  },
+  importClick(){ document.getElementById('import-file').click(); },
+  importFile(inp){
+    const f=inp.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=e=>{
+      try{
+        const parsed=JSON.parse(e.target.result);
+        Object.assign(Store.get(),parsed);
+        Store.save();
+        Setup.init();
+        U.toast('Backup imported successfully!');
+      } catch(err){ U.toast('Import failed — invalid file.'); }
+    };
+    r.readAsText(f);
+    inp.value='';
+  }
+};
+
+/* ─── SETUP ─── */
+const Setup = {
+  _recDays:[],
+  init(){
+    const s=Store.get();
+    this.renderInterests(); this.renderTasks(); this.renderBlocked(); this.renderRecurring();
+    const es=document.getElementById('energy-slider');
+    if(es){ es.value=s.energy; }
+    document.getElementById('energy-val').textContent=s.energy+'/10';
+    document.getElementById('energy-hint').textContent=this.eDesc(s.energy);
+    if(s.mood) document.querySelectorAll('.mood-chip').forEach(c=>{ if(c.dataset.mood===s.mood) c.classList.add('sel'); });
+    const ak=document.getElementById('apikey-inp'); if(ak&&s.apiKey) ak.value=s.apiKey;
+  },
+  mood(el){
+    document.querySelectorAll('.mood-chip').forEach(c=>c.classList.remove('sel'));
+    el.classList.add('sel');
+    Store.get().mood=el.dataset.mood; Store.save();
+  },
+  energy(v){
+    Store.get().energy=parseInt(v);
+    document.getElementById('energy-val').textContent=v+'/10';
+    document.getElementById('energy-hint').textContent=this.eDesc(parseInt(v));
+    Store.save();
+  },
+  eDesc(v){ return ['','Barely functional — rest first.','Very low — ultra-gentle.','Low — easy tasks.','Low-moderate — light work.','Moderate — some structure.','Balanced — mix of focus and fun.','Good energy — solid blocks.','High — ambitious sessions.','Very high — long focus blocks.','Peak — tackle hardest things first.'][v]||''; },
+  addPreset(v){ this._addTo('interests',v); },
+  addInterest(){ const i=document.getElementById('interest-inp'); this._addTo('interests',i.value.trim()); i.value=''; },
+  addTask(){ /* setup tasks not used separately now */ },
+  _addTo(key,val){
+    if(!val) return;
+    const v=val[0].toUpperCase()+val.slice(1);
+    const s=Store.get();
+    if(s[key].includes(v)) return;
+    s[key].push(v); Store.save();
+    if(key==='interests') this.renderInterests();
+    if(key==='tasks') this.renderTasks();
+  },
+  removeFrom(key,val){
+    const s=Store.get(); s[key]=s[key].filter(v=>v!==val); Store.save();
+    if(key==='interests') this.renderInterests();
+    if(key==='tasks') this.renderTasks();
+  },
+  renderInterests(){
+    document.getElementById('interest-tags').innerHTML=
+      Store.get().interests.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="Setup.removeFrom('interests','${U.esc(t)}')">×</span></div>`).join('');
+  },
+  renderTasks(){
+    const el=document.getElementById('task-tags');
+    if(el) el.innerHTML=Store.get().tasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="Setup.removeFrom('tasks','${U.esc(t)}')">×</span></div>`).join('');
+  },
+  addBlock(){
+    const n=document.getElementById('block-name').value.trim()||'Blocked';
+    const s=document.getElementById('block-start').value;
+    const e=document.getElementById('block-end').value;
+    if(!s||!e) return;
+    Store.get().blocked.push({label:n,start:s,end:e}); Store.save();
+    this.renderBlocked(); document.getElementById('block-name').value='';
+  },
+  quickBlock(n,s,e){
+    if(Store.get().blocked.find(b=>b.label===n)) return;
+    Store.get().blocked.push({label:n,start:s,end:e}); Store.save(); this.renderBlocked();
+  },
+  removeBlock(i){ Store.get().blocked.splice(i,1); Store.save(); this.renderBlocked(); },
+  renderBlocked(){
+    document.getElementById('blocked-list').innerHTML=
+      Store.get().blocked.map((b,i)=>`<div class="bitem"><span class="bitem-name">${b.label}</span><span class="bitem-time">${b.start}–${b.end}</span><button class="delbtn" onclick="Setup.removeBlock(${i})">×</button></div>`).join('');
+  },
+  toggleDay(el){
+    el.classList.toggle('sel');
+    const d=parseInt(el.dataset.d);
+    if(el.classList.contains('sel')){ if(!this._recDays.includes(d)) this._recDays.push(d); }
+    else this._recDays=this._recDays.filter(x=>x!==d);
+  },
+  addRecurring(){
+    const n=document.getElementById('rec-name').value.trim();
+    const s=document.getElementById('rec-start').value;
+    const e=document.getElementById('rec-end').value;
+    if(!n||!s||!e||!this._recDays.length){ U.toast('Fill name, times, and select days.'); return; }
+    Store.get().recurring.push({label:n,start:s,end:e,days:[...this._recDays]});
+    Store.save(); this.renderRecurring();
+    document.getElementById('rec-name').value='';
+    this._recDays=[]; document.querySelectorAll('.dpbtn').forEach(b=>b.classList.remove('sel'));
+  },
+  removeRecurring(i){ Store.get().recurring.splice(i,1); Store.save(); this.renderRecurring(); },
+  renderRecurring(){
+    const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    document.getElementById('rec-list').innerHTML=
+      Store.get().recurring.map((r,i)=>`
+        <div class="rec-item">
+          <span class="rec-item-name">${r.label}</span>
+          <div class="rec-days-mini">${[1,2,3,4,5,6,0].map(d=>`<div class="rdd${r.days.includes(d)?' on':''}">${DN[d][0]}</div>`).join('')}</div>
+          <span class="rec-item-time">${r.start}–${r.end}</span>
+          <button class="delbtn" onclick="Setup.removeRecurring(${i})">×</button>
+        </div>`).join('');
+  },
+  apiKey(v){ Store.get().apiKey=v.trim(); Store.save(); },
+  toggleKey(){
+    const i=document.getElementById('apikey-inp'),b=i.nextElementSibling;
+    i.type=i.type==='password'?'text':'password'; b.textContent=i.type==='password'?'Show':'Hide';
+  }
+};
+
+/* ─── AI ─── */
+const AI = {
+  async call(prompt){
+    const apiKey=Store.get().apiKey;
+    if(!apiKey) throw new Error('No API key');
+    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile', temperature:0.7, max_tokens:4000,
+        messages:[
+          {role:'system',content:'You are a personal day scheduler. Respond ONLY with a valid JSON array. No markdown, no backticks, no extra text.'},
+          {role:'user',content:prompt}
+        ]
+      })
+    });
+    if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e?.error?.message||`Groq ${res.status}`); }
+    const data=await res.json();
+    const raw=data.choices[0].message.content;
+    return JSON.parse(raw.replace(/```json|```/g,'').trim());
+  },
+  prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend){
+    const bl=blocked.length?blocked.map(b=>`"${b.label}" ${b.start}–${b.end}`).join(', '):'none';
+    const rl=recurring.length?recurring.map(r=>`"${r.label}" ${r.start}–${r.end}`).join(', '):'none';
+    return `Generate a daily schedule for ${dayLabel} from ${startTime} to ${endTime}.
+
+Mood: ${mood||'neutral'} | Energy: ${energy}/10
+Interests: ${interests.join(', ')||'general'}
+Must-do tasks: ${tasks.join(', ')||'none'}
+Blocked: ${bl}
+Recurring (place at exact times): ${rl}
+Weekend: ${isWeekend}
+
+Rules:
+1. Only schedule from ${startTime} to ${endTime}
+2. Never overlap blocked times
+3. Place recurring activities at their exact times
+4. ${isWeekend?'Lighter, hobby-focused, relaxed pace':'Structured, productive, goal-oriented'}
+5. Energy ${energy}/10: ${energy<=3?'gentle start, lots of breaks':energy>=7?'hard tasks first, long blocks':'balanced mix'}
+6. Mood ${mood||'neutral'}: ${mood==='Tired'?'short sessions, rest breaks':mood==='Creative'?'creative tasks at peak':mood==='Focused'?'deep work blocks':mood==='Anxious'?'short structured blocks':'standard flow'}
+7. Include meals unless blocked: breakfast 7-8am, lunch 12-1pm, dinner 6-7pm
+8. 10-15min breaks between intense blocks
+9. Weave interests naturally throughout
+10. Every activity gets 3 swap suggestions from interests list
+11. Personal, motivating descriptions
+
+Colors: teal=wellness, purple=hobbies, blue=focus/study, coral=tasks, pink=social, amber=meals, gray=breaks
+
+Return ONLY a JSON array:
+[{"time":"07:00","endTime":"08:00","title":"...","description":"...","category":"...","color":"teal","type":"interest","swaps":["...","...","..."]}]
+type: interest|task|meal|break|blocked`;
+  }
+};
+
+/* ─── FALLBACK ─── */
+const Fallback = {
+  build(dateKey,startTime,endTime,mood,energy,interests,tasks,blocked,recurring){
+    const e=energy||6, i=interests.length?interests:['Reading','Walking'];
+    let ii=0; const ni=()=>i[ii++%i.length];
+    const hi=e>=7, lo=e<=3, isWkd=U.isWeekend(dateKey);
+    const sm=U.t2m(startTime||'07:00'), em=U.t2m(endTime||'22:30');
+
+    const blocked2=(s,en)=>blocked.some(b=>{
+      const bs=U.t2m(b.start),be=U.t2m(b.end),ss=U.t2m(s),se=U.t2m(en);
+      return ss<be&&se>bs;
+    });
+    const inRange=(s)=>{ const v=U.t2m(s); return v>=sm&&v<em; };
+
+    let slots=[];
+    const add=(t,en,title,desc,cat,color,type,swaps=[])=>{
+      if(!blocked2(t,en)&&inRange(t)) slots.push({time:t,endTime:en,title,description:desc,category:cat,color,type,swaps,done:false});
+    };
+
+    if(!isWkd){
+      if(inRange('07:00')) add('07:00','07:45','Breakfast','Fuel up before the day begins.','meal','amber','meal',['Smoothie bowl','Oats','Eggs & toast']);
+      if(hi){ add('08:00','09:30',ni(),`Focused session — energy is high, make it count.`,'focus','blue','interest',i.slice(1,4)); }
+      else if(lo){ add('08:00','09:00','Gentle start','Ease in — light reading or stretching.','wellness','teal','break',['Stretching','Light reading','Journaling']); }
+      else{ add('08:00','09:30',ni(),`Morning session with ${i[0]}.`,'focus','blue','interest',i.slice(1,4)); }
+      add('09:30','09:45','Break','Step away, breathe.','break','gray','break',['Water break','Stretch','Look outside']);
+      if(tasks[0]) add('09:45','11:15',tasks[0],`Must-do: ${tasks[0]}.`,'task','coral','task',i.slice(0,3));
+      else add('09:45','11:15',ni(),`Deep dive into ${i[1]||i[0]}.`,'hobby','purple','interest',i.slice(0,3));
+      add('11:15','11:30','Break','Hydrate and reset.','break','gray','break',['Walk','Water','Snack']);
+      add('11:30','13:00',tasks[1]||ni(),tasks[1]?`Complete: ${tasks[1]}.`:`Focused on ${i[2]||i[0]}.`,'focus','blue','interest',i.slice(0,3));
+      add('13:00','14:00','Lunch','Eat properly away from screens.','meal','amber','meal',['Cook lunch','Order in','Salad']);
+      add('14:00','14:20','Post-lunch walk','Short walk resets focus completely.','wellness','teal','break',['Stretch','Sit outside','Power nap']);
+      add('14:20','16:00',ni(),`Afternoon session.`,'focus','blue','interest',i.slice(0,3));
+      add('16:00','17:30',tasks[2]||ni(),tasks[2]?`Get it done: ${tasks[2]}.`:`Afternoon hobby time.`,'hobby','pink','interest',i.slice(0,3));
+      add('17:30','18:00','Transition','Physical reset into evening mode.','wellness','teal','break',['Walk','Music','Stretch']);
+    } else {
+      add('08:30','09:30','Slow breakfast','Weekend morning — take your time.','meal','amber','meal');
+      add('09:30','11:00',ni(),`Weekend morning with ${i[0]}.`,'hobby','purple','interest',i.slice(1,4));
+      add('11:00','11:30','Walk','Easy movement on a free morning.','wellness','teal','break');
+      add('12:00','13:00','Brunch / Lunch','Relax and enjoy.','meal','amber','meal');
+      add('13:00','15:00',ni(),`Afternoon exploring ${i[1]||i[0]}.`,'hobby','pink','interest',i.slice(0,3));
+      add('15:30','17:30',ni(),`More time for ${i[2]||i[0]}.`,'hobby','purple','interest',i.slice(0,3));
+    }
+    add('18:00','19:00','Dinner','Enjoy your evening meal.','meal','amber','meal',['Cook','Order in','Meal prep']);
+    add('19:00','20:30',ni(),`Evening quality time.`,'hobby','purple','interest',i.slice(0,3));
+    add('20:30','21:30','Wind-down','Read, music, or light show.','relax','pink','break',['Reading','Podcast','Music']);
+    add('21:30','22:00','Reflection','3 wins + 1 thing to improve tomorrow.','mindfulness','gray','break',['Journaling','Voice memo','Meditation']);
+
+    // recurring
+    recurring.forEach(r=>{
+      if(!blocked2(r.start,r.end)&&inRange(r.start)){
+        slots.push({time:r.start,endTime:r.end,title:r.label,description:`Recurring: ${r.label}.`,category:'recurring',color:'teal',type:'interest',swaps:i.slice(0,3),done:false});
+      }
+    });
+
+    // blocked
+    blocked.forEach(b=>{
+      if(inRange(b.start)) slots.push({time:b.start,endTime:b.end,title:b.label,description:'Blocked — unavailable.',category:'blocked',color:'gray',type:'blocked',swaps:[],done:false});
+    });
+
+    return slots.sort((a,b)=>U.t2m(a.time)-U.t2m(b.time));
+  }
+};
+
+/* ─── TIMELINE RENDERER ─── */
+const TL = {
+  render(containerId, schedule, ctx){
+    const el=document.getElementById(containerId);
+    if(!el) return;
+    el.innerHTML='<div class="tl-line"></div>';
+
+    [['Morning',h=>h<12],['Afternoon',h=>h>=12&&h<18],['Evening',h=>h>=18]].forEach(([label,test])=>{
+      const items=schedule.filter(s=>test(parseInt(s.time)));
+      if(!items.length) return;
+      const sep=document.createElement('div');
+      sep.className='tl-sec'; sep.textContent=label;
+      el.appendChild(sep);
+      items.forEach((item,li)=>{ el.appendChild(this.block(item,schedule.indexOf(item),li,ctx)); });
+    });
+  },
+
+  block(item, gi, li, ctx){
+    const mins=U.mins(item.time,item.endTime);
+    const isBlk=item.type==='blocked';
+    const isDone=item.done;
+    const sid=`sp-${ctx}-${gi}`;
+
+    const wrap=document.createElement('div');
+    wrap.className='tl-block';
+    wrap.style.animationDelay=(li*0.04)+'s';
+
+    if(!isBlk){
+      wrap.draggable=true;
+      wrap.dataset.gi=gi;
+      wrap.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain',gi); wrap.querySelector('.tl-card').classList.add('dragging'); });
+      wrap.addEventListener('dragend',()=>wrap.querySelector('.tl-card')?.classList.remove('dragging'));
+      wrap.addEventListener('dragover',e=>{ e.preventDefault(); wrap.querySelector('.tl-card')?.classList.add('drag-over'); });
+      wrap.addEventListener('dragleave',()=>wrap.querySelector('.tl-card')?.classList.remove('drag-over'));
+      wrap.addEventListener('drop',e=>{
+        e.preventDefault();
+        wrap.querySelector('.tl-card')?.classList.remove('drag-over');
+        const from=parseInt(e.dataTransfer.getData('text/plain'));
+        if(from!==gi) TL._onDrag(ctx,from,gi);
+      });
+    }
+
+    // swaps for EVERY block (including breaks)
+    const swapsHTML=`
+      <div class="swap-panel" id="${sid}">
+        <div class="swap-lbl">Swap or add</div>
+        <div class="swap-opts">
+          ${(item.swaps||[]).map(s=>`<button class="sopt" onclick="TL._swap('${ctx}',${gi},'${U.esc(s)}')">${s}</button>`).join('')}
+          <button class="sopt add-custom" onclick="Modals.openAdd('${ctx}',${gi})">+ Add custom</button>
+        </div>
+      </div>`;
+
+    const actHTML=`
+      <div class="tl-actions">
+        ${!isBlk?`<button class="tlbtn done" onclick="TL._done('${ctx}',${gi})">${isDone?'Undo':'Done'}</button>`:''}
+        <button class="tlbtn swap-btn" onclick="TL._toggleSwap('${sid}')">Swap</button>
+        <button class="tlbtn edit-btn" onclick="Modals.openBlock('${ctx}',${gi})">Edit</button>
+      </div>${swapsHTML}`;
+
+    wrap.innerHTML=`
+      <div class="tl-time">${item.time}</div>
+      <div class="tl-dot dot-${item.color||'gray'}"></div>
+      <div class="tl-card${isBlk?' is-blocked':''}${isDone?' is-done':''}">
+        <div class="tl-top">
+          <div class="tl-title-wrap">
+            <div class="tl-title">${item.title}</div>
+            <div class="tl-dur">${mins} min${isBlk?' · unavailable':''}</div>
+          </div>
+          <span class="tl-cat c-${item.color||'gray'}">${item.category}</span>
+        </div>
+        <div class="tl-desc">${item.description}</div>
+        ${actHTML}
+      </div>`;
+    return wrap;
+  },
+
+  _toggleSwap(id){ const e=document.getElementById(id); if(e) e.classList.toggle('open'); },
+
+  _done(ctx, gi){
+    const sch=TL._getSchByCtx(ctx);
+    if(!sch||!sch[gi]) return;
+    sch[gi].done=!sch[gi].done;
+    Store.save();
+    TL._refresh(ctx);
+    CalPage._updateProgress(ctx);
+  },
+
+  _swap(ctx, gi, title){
+    const sch=TL._getSchByCtx(ctx);
+    if(!sch||!sch[gi]) return;
+    sch[gi].title=title;
+    sch[gi].description=`Swapped to: ${title}. Make it great!`;
+    sch[gi].swaps=(sch[gi].swaps||[]).filter(s=>s!==title);
+    Store.save(); TL._refresh(ctx);
+  },
+
+  _onDrag(ctx, from, to){
+    const sch=TL._getSchByCtx(ctx);
+    if(!sch) return;
+    const item=sch.splice(from,1)[0];
+    sch.splice(to,0,item);
+    Store.save(); TL._refresh(ctx);
+  },
+
+  _getSchByCtx(ctx){
+    // ctx is a dateKey like "2025-03-16"
+    return Store.get().schedules[ctx];
+  },
+
+  _refresh(ctx){
+    const sch=TL._getSchByCtx(ctx);
+    if(!sch) return;
+    TL.render('cal-timeline', sch, ctx);
+    CalPage._updateProgress(ctx);
+    GenPage._refreshResultCards();
+  }
+};
+
+/* ─── GENERATE PAGE ─── */
+const GenPage = {
+  _dayTasks:[], _weekTasks:[],
+
+  init(){
+    // set default date to today
+    const today=U.nowKey();
+    document.getElementById('day-date-pick').value=today;
+    document.getElementById('week-start-pick').value=today;
+    this._updateWeekCta();
+  },
+
+  switchTab(t){
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    document.getElementById('tab-'+t).classList.add('active');
+    document.getElementById('panel-'+t).classList.add('active');
+  },
+
+  dayOpt(v){
+    document.getElementById('day-opt-today').classList.toggle('active',v==='today');
+    document.getElementById('day-opt-pick').classList.toggle('active',v==='pick');
+    document.getElementById('day-date-pick').style.display=v==='pick'?'block':'none';
+  },
+
+  startOpt(v){
+    document.getElementById('start-opt-now').classList.toggle('active',v==='now');
+    document.getElementById('start-opt-pick').classList.toggle('active',v==='pick');
+    document.getElementById('day-start-pick').style.display=v==='pick'?'block':'none';
+  },
+
+  weekStartOpt(v){
+    document.getElementById('week-opt-today').classList.toggle('active',v==='today');
+    document.getElementById('week-opt-pick').classList.toggle('active',v==='pick');
+    document.getElementById('week-start-pick').style.display=v==='pick'?'block':'none';
+    this._updateWeekCta();
+  },
+
+  weekDaysChange(v){
+    document.getElementById('week-days-val').textContent=v+' day'+(v>1?'s':'');
+    this._updateWeekCta();
+  },
+
+  _updateWeekCta(){
+    const days=parseInt(document.getElementById('week-days-slider')?.value||7);
+    document.getElementById('week-cta-sub').textContent=`Generating ${days} day${days>1?'s':''} of schedules`;
+  },
+
+  addDayTask(){
+    const i=document.getElementById('day-task-inp');
+    const v=i.value.trim(); if(!v) return;
+    if(!this._dayTasks.includes(v)) this._dayTasks.push(v);
+    i.value='';
+    document.getElementById('day-task-tags').innerHTML=
+      this._dayTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeDayTask('${U.esc(t)}')">×</span></div>`).join('');
+  },
+  _removeDayTask(v){
+    this._dayTasks=this._dayTasks.filter(t=>t!==v);
+    document.getElementById('day-task-tags').innerHTML=
+      this._dayTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeDayTask('${U.esc(t)}')">×</span></div>`).join('');
+  },
+
+  addWeekTask(){
+    const i=document.getElementById('week-task-inp');
+    const v=i.value.trim(); if(!v) return;
+    if(!this._weekTasks.includes(v)) this._weekTasks.push(v);
+    i.value='';
+    document.getElementById('week-task-tags').innerHTML=
+      this._weekTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeWeekTask('${U.esc(t)}')">×</span></div>`).join('');
+  },
+  _removeWeekTask(v){
+    this._weekTasks=this._weekTasks.filter(t=>t!==v);
+    document.getElementById('week-task-tags').innerHTML=
+      this._weekTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeWeekTask('${U.esc(t)}')">×</span></div>`).join('');
+  },
+
+  async generateDay(){
+    const s=Store.get();
+    if(!s.interests.length){ U.toast('Add interests in Setup first!'); return; }
+
+    // Which date?
+    const usePick=document.getElementById('day-opt-pick').classList.contains('active');
+    const dateKey=usePick ? document.getElementById('day-date-pick').value : U.nowKey();
+    if(!dateKey){ U.toast('Please pick a date.'); return; }
+
+    // Start time — cannot be before current time if today
+    const useNow=document.getElementById('start-opt-now').classList.contains('active');
+    let startTime;
+    if(useNow){
+      startTime=U.nowTime();
+    } else {
+      startTime=document.getElementById('day-start-pick').value;
+      if(dateKey===U.nowKey()){
+        const now=U.t2m(U.nowTime());
+        if(U.t2m(startTime)<now){ U.toast("Start time can't be before current time for today."); return; }
+      }
+    }
+    const endTime=document.getElementById('day-end-pick').value||'23:00';
+    const mood=document.getElementById('day-mood').value||s.mood;
+    const energy=parseInt(document.getElementById('day-energy').value)||s.energy;
+    const tasks=[...s.tasks,...this._dayTasks];
+    const dow=U.dowNum(dateKey);
+    const rec=s.recurring.filter(r=>r.days.includes(dow));
+    const isWkd=U.isWeekend(dateKey);
+
+    this._showLoading(true, 'Generating your day...', 'Building schedule around your interests');
+
+    try{
+      const prompt=AI.prompt(U.dayName(dateKey),startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,isWkd);
+      const sched=await AI.call(prompt);
+      s.schedules[dateKey]=sched.map(x=>({...x,done:false}));
+    } catch(e){
+      s.schedules[dateKey]=Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec);
+      U.toast('Using smart fallback (add Groq key for AI generation).');
+    }
+
+    // streak
+    if(dateKey===U.nowKey()&&s.lastStreakDate!==dateKey){
+      s.streak=(s.streak||0)+1;
+      s.streakDays=[...s.streakDays.slice(1),1];
+      s.lastStreakDate=dateKey;
+    }
+    Store.save();
+    this._showLoading(false);
+    this._showResult([dateKey]);
+  },
+
+  async generateWeek(){
+    const s=Store.get();
+    if(!s.interests.length){ U.toast('Add interests in Setup first!'); return; }
+
+    const usePick=document.getElementById('week-opt-pick').classList.contains('active');
+    const startKey=usePick ? document.getElementById('week-start-pick').value : U.nowKey();
+    if(!startKey){ U.toast('Pick a start date.'); return; }
+
+    const days=parseInt(document.getElementById('week-days-slider').value)||7;
+    const startTime=document.getElementById('week-start-time').value||'07:00';
+    const endTime=document.getElementById('week-end-time').value||'22:30';
+    const mood=document.getElementById('week-mood').value||s.mood;
+    const energy=parseInt(document.getElementById('week-energy').value)||s.energy;
+    const tasks=[...s.tasks,...this._weekTasks];
+
+    const dateKeys=Array.from({length:days},(_,i)=>U.addDays(startKey,i));
+
+    this._showLoading(true,'Generating your week...','Starting with day 1');
+
+    for(let i=0;i<dateKeys.length;i++){
+      const dk=dateKeys[i];
+      document.getElementById('gen-loading-sub').textContent=`Day ${i+1}/${days}: ${U.dayName(dk)}`;
+      const dow=U.dowNum(dk);
+      const rec=s.recurring.filter(r=>r.days.includes(dow));
+      const isWkd=U.isWeekend(dk);
+      const dayMood=s.dayMoods[dk]||mood;
+      try{
+        const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd);
+        const sched=await AI.call(prompt);
+        s.schedules[dk]=sched.map(x=>({...x,done:false}));
+      } catch(e){
+        s.schedules[dk]=Fallback.build(dk,startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec);
+      }
+    }
+
+    Store.save();
+    this._showLoading(false);
+    this._showResult(dateKeys);
+  },
+
+  _showLoading(show,main,sub){
+    document.getElementById('gen-loading').style.display=show?'flex':'none';
+    document.getElementById('gen-result').style.display=show?'none':'none';
+    if(show){
+      document.getElementById('gen-loading-main').textContent=main||'Generating...';
+      document.getElementById('gen-loading-sub').textContent=sub||'';
+      document.getElementById('gen-day-btn').disabled=true;
+      document.getElementById('gen-week-btn').disabled=true;
+    } else {
+      document.getElementById('gen-day-btn').disabled=false;
+      document.getElementById('gen-week-btn').disabled=false;
+    }
+  },
+
+  _showResult(dateKeys){
+    const todayK=U.nowKey();
+    document.getElementById('gen-result').style.display='block';
+    document.getElementById('result-title').textContent=
+      dateKeys.length===1 ? `Schedule for ${U.fmtDate(dateKeys[0])}` : `${dateKeys.length}-day schedule ready`;
+
+    const container=document.getElementById('result-day-cards');
+    container.innerHTML=dateKeys.map(dk=>{
+      const sched=Store.get().schedules[dk]||[];
+      const preview=sched.filter(s=>s.type!=='break'&&s.type!=='blocked').slice(0,3);
+      const isToday=dk===todayK;
+      return `<div class="rdc${isToday?' today-card':''}" onclick="Nav.go('calendar');CalPage.selectDay('${dk}')">
+        <div class="rdc-day">${U.shortDay(dk)}</div>
+        <div class="rdc-date">${U.dayNum(dk)}</div>
+        <div class="rdc-preview">
+          ${preview.map(a=>`<div class="rdc-act"><div class="rdc-dot dot-${a.color||'gray'}"></div>${a.title}</div>`).join('')}
+          ${sched.length>3?`<div class="rdc-more">+${sched.filter(s=>s.type!=='break'&&s.type!=='blocked').length-3} more</div>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  },
+
+  _refreshResultCards(){
+    const el=document.getElementById('result-day-cards');
+    if(!el||el.children.length===0) return;
+    // just re-render quietly — no-op if not visible
+  }
+};
+
+/* ─── CALENDAR PAGE ─── */
+const CalPage = {
+  _year: new Date().getFullYear(),
+  _month: new Date().getMonth(),
+  _selDay: null,
+  _filter: 'all',
+
+  render(){
+    this._year=new Date().getFullYear();
+    this._month=new Date().getMonth();
+    this._renderMiniCal();
+    this._renderReminders();
+    if(this._selDay) this._renderDayDetail(this._selDay);
+  },
+
+  selectDay(dk){
+    this._selDay=dk;
+    // sync calendar view to the month of the selected day
+    const d=new Date(dk+'T12:00:00');
+    this._year=d.getFullYear(); this._month=d.getMonth();
+    this._renderMiniCal();
+    this._renderDayDetail(dk);
+    this._renderReminders();
+  },
+
+  _renderMiniCal(){
+    const mc=document.getElementById('mini-cal');
+    const y=this._year, m=this._month;
+    const first=new Date(y,m,1), last=new Date(y,m+1,0);
+    const startDow=(first.getDay()+6)%7;
+    const todayK=U.nowKey();
+    const s=Store.get();
+    const remDays=new Set(s.reminders.map(r=>r.date));
+
+    let cells='';
+    for(let i=0;i<startDow;i++) cells+=`<div class="ccell other"></div>`;
+    for(let d=1;d<=last.getDate();d++){
+      const k=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const hasSch=!!s.schedules[k];
+      const hasRem=remDays.has(k);
+      const cls=[
+        'ccell',
+        k===todayK?'today':'',
+        k===this._selDay?'selected':'',
+        hasSch&&hasRem?'has-both':hasSch?'has-sched':hasRem?'has-rem':''
+      ].filter(Boolean).join(' ');
+      cells+=`<div class="${cls}" onclick="CalPage.selectDay('${k}')">${d}</div>`;
+    }
+
+    mc.innerHTML=`
+      <div class="mcal-hdr">
+        <button class="mcal-nav" onclick="CalPage._navMonth(-1)">‹</button>
+        <span class="mcal-title">${first.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</span>
+        <button class="mcal-nav" onclick="CalPage._navMonth(1)">›</button>
+      </div>
+      <div class="mcal-grid">
+        ${['M','T','W','T','F','S','S'].map(d=>`<div class="cdow">${d}</div>`).join('')}
+        ${cells}
+      </div>`;
+  },
+
+  _navMonth(dir){
+    this._month+=dir;
+    if(this._month>11){this._month=0;this._year++;}
+    if(this._month<0){this._month=11;this._year--;}
+    this._renderMiniCal();
+  },
+
+  _renderReminders(){
+    const s=Store.get();
+    const todayK=U.nowKey();
+    let rems=[...s.reminders];
+
+    if(this._filter==='today')    rems=rems.filter(r=>r.date===todayK);
+    else if(this._filter==='high') rems=rems.filter(r=>r.priority==='high');
+    else if(this._filter==='recurring') rems=rems.filter(r=>r.repeat!=='none');
+
+    rems.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+
+    const CLRS={teal:'var(--teal)',purple:'var(--purple)',coral:'var(--coral)',blue:'var(--blue)',pink:'var(--pink)',amber:'var(--amber)'};
+    const RL={none:'',daily:'Daily',weekly:'Weekly',weekdays:'Weekdays',weekends:'Weekends',monthly:'Monthly'};
+
+    const list=document.getElementById('reminders-list');
+    if(!rems.length){ list.innerHTML='<div class="no-rem">No reminders. Click "+ Reminder" to add one.</div>'; return; }
+
+    list.innerHTML=rems.map(r=>`
+      <div class="rem-item">
+        <div class="rem-bar" style="background:${CLRS[r.color]||'var(--amber)'}"></div>
+        <div class="rem-body">
+          <div class="rem-top">
+            <span class="rem-title">${r.title}</span>
+            <div class="rem-badges">
+              <span class="rbadge rbadge-${r.priority}">${r.priority}</span>
+              ${r.repeat&&r.repeat!=='none'?`<span class="rbadge rbadge-rec">${RL[r.repeat]}</span>`:''}
+            </div>
+          </div>
+          <div class="rem-meta">${U.shortDate(r.date)} · ${r.time}</div>
+          ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
+        </div>
+        <div class="rem-acts">
+          <button class="iconbtn" onclick="CalPage._editRem('${r.id}')">✎</button>
+          <button class="iconbtn del" onclick="CalPage._delRem('${r.id}')">×</button>
+        </div>
+      </div>`).join('');
+  },
+
+  _renderDayDetail(dk){
+    document.getElementById('cal-right-empty').style.display='none';
+    document.getElementById('cal-right-content').style.display='block';
+
+    document.getElementById('cal-day-title').textContent=U.dayName(dk);
+    document.getElementById('cal-day-meta').textContent=U.fmtDate(dk);
+
+    const moodSel=document.getElementById('cal-day-mood');
+    moodSel.value=Store.get().dayMoods[dk]||'';
+
+    const sched=Store.get().schedules[dk];
+    this._updateProgress(dk);
+
+    if(!sched||!sched.length){
+      document.getElementById('cal-timeline').innerHTML=`
+        <div class="no-sched">No schedule for this day yet.<br>
+          <button class="addbtn" style="margin-top:10px" onclick="Nav.go('generate')">Go to Generate →</button>
+        </div>`;
+    } else {
+      TL.render('cal-timeline', sched, dk);
+    }
+
+    this._renderDayReminders(dk);
+  },
+
+  _renderDayReminders(dk){
+    const rems=Store.get().reminders.filter(r=>r.date===dk||
+      (r.repeat==='daily')||
+      (r.repeat==='weekly'&&new Date(r.date+'T12:00:00').getDay()===new Date(dk+'T12:00:00').getDay())||
+      (r.repeat==='weekdays'&&[1,2,3,4,5].includes(new Date(dk+'T12:00:00').getDay()))||
+      (r.repeat==='weekends'&&[0,6].includes(new Date(dk+'T12:00:00').getDay()))
+    );
+    const CLRS={teal:'var(--teal)',purple:'var(--purple)',coral:'var(--coral)',blue:'var(--blue)',pink:'var(--pink)',amber:'var(--amber)'};
+    const el=document.getElementById('cal-day-reminders');
+    if(!rems.length){ el.innerHTML='<div class="no-rem">No reminders for this day.</div>'; return; }
+    el.innerHTML=rems.map(r=>`
+      <div class="rem-item">
+        <div class="rem-bar" style="background:${CLRS[r.color]||'var(--amber)'}"></div>
+        <div class="rem-body">
+          <div class="rem-top"><span class="rem-title">${r.title}</span><span class="rbadge rbadge-${r.priority}">${r.priority}</span></div>
+          <div class="rem-meta">${r.time}</div>
+          ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
+        </div>
+        <button class="iconbtn del" onclick="CalPage._delRem('${r.id}')">×</button>
+      </div>`).join('');
+  },
+
+  _updateProgress(dk){
+    const sched=Store.get().schedules[dk]||[];
+    const items=sched.filter(s=>s.type!=='blocked'&&s.type!=='break');
+    const done=items.filter(s=>s.done).length;
+    const pct=items.length?Math.round((done/items.length)*100):0;
+    const f=document.getElementById('cal-progress-fill');
+    const l=document.getElementById('cal-progress-lbl');
+    if(f) f.style.width=pct+'%';
+    if(l) l.textContent=`${done} / ${items.length} done`;
+  },
+
+  updateDayMood(v){
+    if(!this._selDay) return;
+    Store.get().dayMoods[this._selDay]=v;
+    Store.save();
+  },
+
+  async regenDay(){
+    if(!this._selDay){ U.toast('Select a day first.'); return; }
+    const dk=this._selDay, s=Store.get();
+    const mood=s.dayMoods[dk]||s.mood;
+    const dow=U.dowNum(dk);
+    const rec=s.recurring.filter(r=>r.days.includes(dow));
+    const sched=s.schedules[dk];
+    const startTime=sched?.[0]?.time||'07:00';
+    const endTime='23:00';
+
+    U.toast(`Regenerating ${U.dayName(dk)}...`);
+    try{
+      const prompt=AI.prompt(U.dayName(dk),startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec,U.isWeekend(dk));
+      const ns=await AI.call(prompt);
+      s.schedules[dk]=ns.map(x=>({...x,done:false}));
+    } catch(e){
+      s.schedules[dk]=Fallback.build(dk,startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec);
+    }
+    Store.save();
+    this._renderDayDetail(dk);
+    this._renderMiniCal();
+    U.toast('Day regenerated!');
+  },
+
+  filter(el,f){
+    this._filter=f;
+    document.querySelectorAll('.rfbtn').forEach(b=>b.classList.remove('active'));
+    el.classList.add('active');
+    this._renderReminders();
+  },
+
+  openReminderModal(dk){
+    Modals.openRem(dk||this._selDay);
+  },
+
+  _editRem(id){ Modals.openRem(null, id); },
+  _delRem(id){
+    Store.get().reminders=Store.get().reminders.filter(r=>r.id!==id);
+    Store.save();
+    this._renderReminders();
+    if(this._selDay) this._renderDayReminders(this._selDay);
+    this._renderMiniCal();
+    U.toast('Reminder deleted.');
+  }
+};
+
+/* ─── MODALS ─── */
+const Modals = {
+  _blockCtx:null, _blockGi:null,
+  _addCtx:null,   _addAfterGi:null,
+  _remId:null,    _remPri:'high', _remColor:'amber',
+
+  // BLOCK EDIT
+  openBlock(ctx, gi){
+    const sch=Store.get().schedules[ctx];
+    if(!sch||!sch[gi]) return;
+    const item=sch[gi];
+    this._blockCtx=ctx; this._blockGi=gi;
+    document.getElementById('be-title').value=item.title;
+    document.getElementById('be-desc').value=item.description;
+    document.getElementById('be-start').value=item.time;
+    document.getElementById('be-end').value=item.endTime;
+    document.getElementById('be-category').value=item.category;
+    document.getElementById('be-color').value=item.color||'gray';
+    document.getElementById('block-edit-overlay').classList.add('open');
+  },
+  closeBlock(e){
+    if(e&&e.target!==document.getElementById('block-edit-overlay')) return;
+    document.getElementById('block-edit-overlay').classList.remove('open');
+    this._blockCtx=null; this._blockGi=null;
+  },
+  saveBlock(){
+    const ctx=this._blockCtx, gi=this._blockGi;
+    const sch=Store.get().schedules[ctx];
+    if(!sch||gi===null) return;
+    sch[gi].title=document.getElementById('be-title').value;
+    sch[gi].description=document.getElementById('be-desc').value;
+    sch[gi].time=document.getElementById('be-start').value;
+    sch[gi].endTime=document.getElementById('be-end').value;
+    sch[gi].category=document.getElementById('be-category').value;
+    sch[gi].color=document.getElementById('be-color').value;
+    Store.save();
+    document.getElementById('block-edit-overlay').classList.remove('open');
+    TL._refresh(ctx);
+    U.toast('Activity updated!');
+  },
+
+  // ADD CUSTOM ACTIVITY
+  openAdd(ctx, afterGi){
+    this._addCtx=ctx; this._addAfterGi=afterGi;
+    const sch=Store.get().schedules[ctx];
+    const after=sch?.[afterGi];
+    if(after){
+      document.getElementById('aa-start').value=after.endTime||'10:00';
+      const endMins=U.t2m(after.endTime||'10:00')+60;
+      const eh=Math.floor(endMins/60)%24;
+      const em=endMins%60;
+      document.getElementById('aa-end').value=`${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
+    }
+    document.getElementById('aa-title').value='';
+    document.getElementById('aa-desc').value='';
+    document.getElementById('aa-category').value='';
+    document.getElementById('aa-color').value='amber';
+    document.getElementById('add-act-overlay').classList.add('open');
+  },
+  closeAdd(e){
+    if(e&&e.target!==document.getElementById('add-act-overlay')) return;
+    document.getElementById('add-act-overlay').classList.remove('open');
+  },
+  saveAdd(){
+    const ctx=this._addCtx;
+    const title=document.getElementById('aa-title').value.trim();
+    if(!title){ U.toast('Enter a title.'); return; }
+    const newItem={
+      time:document.getElementById('aa-start').value,
+      endTime:document.getElementById('aa-end').value,
+      title, description:document.getElementById('aa-desc').value,
+      category:document.getElementById('aa-category').value||'custom',
+      color:document.getElementById('aa-color').value,
+      type:'interest', swaps:Store.get().interests.slice(0,3), done:false
+    };
+    const sch=Store.get().schedules[ctx];
+    if(sch){
+      sch.splice(this._addAfterGi+1,0,newItem);
+      sch.sort((a,b)=>U.t2m(a.time)-U.t2m(b.time));
+    }
+    Store.save();
+    document.getElementById('add-act-overlay').classList.remove('open');
+    TL._refresh(ctx);
+    U.toast('Activity added!');
+  },
+
+  // REMINDER
+  openRem(dk, editId){
+    this._remId=editId||null;
+    this._remPri='high'; this._remColor='amber';
+
+    if(editId){
+      const r=Store.get().reminders.find(r=>r.id===editId);
+      if(!r) return;
+      document.getElementById('rem-modal-title').textContent='Edit Reminder';
+      document.getElementById('rm-title').value=r.title;
+      document.getElementById('rm-date').value=r.date;
+      document.getElementById('rm-time').value=r.time;
+      document.getElementById('rm-repeat').value=r.repeat;
+      document.getElementById('rm-notes').value=r.notes||'';
+      this._remPri=r.priority; this._remColor=r.color;
+    } else {
+      document.getElementById('rem-modal-title').textContent='Add Reminder';
+      document.getElementById('rm-title').value='';
+      document.getElementById('rm-date').value=dk||U.nowKey();
+      document.getElementById('rm-time').value='09:00';
+      document.getElementById('rm-repeat').value='none';
+      document.getElementById('rm-notes').value='';
+    }
+
+    document.querySelectorAll('.pribtn').forEach(b=>b.classList.toggle('active',b.dataset.p===this._remPri));
+    document.querySelectorAll('.cswatch').forEach(b=>b.classList.toggle('active',b.dataset.c===this._remColor));
+    document.getElementById('rem-overlay').classList.add('open');
+  },
+  closeRem(e){
+    if(e&&e.target!==document.getElementById('rem-overlay')) return;
+    document.getElementById('rem-overlay').classList.remove('open');
+    this._remId=null;
+  },
+  setPri(el){
+    this._remPri=el.dataset.p;
+    document.querySelectorAll('.pribtn').forEach(b=>b.classList.remove('active'));
+    el.classList.add('active');
+  },
+  setRemColor(el){
+    this._remColor=el.dataset.c;
+    document.querySelectorAll('.cswatch').forEach(b=>b.classList.remove('active'));
+    el.classList.add('active');
+  },
+  saveRem(){
+    const title=document.getElementById('rm-title').value.trim();
+    const date=document.getElementById('rm-date').value;
+    const time=document.getElementById('rm-time').value;
+    if(!title||!date||!time){ U.toast('Fill in title, date and time.'); return; }
+    const rem={
+      id:this._remId||U.uid(), title, date, time,
+      priority:this._remPri, color:this._remColor,
+      repeat:document.getElementById('rm-repeat').value,
+      notes:document.getElementById('rm-notes').value.trim()
+    };
+    const s=Store.get();
+    const idx=s.reminders.findIndex(r=>r.id===rem.id);
+    if(idx>=0) s.reminders[idx]=rem; else s.reminders.push(rem);
+    Store.save();
+    document.getElementById('rem-overlay').classList.remove('open');
+    CalPage._renderReminders();
+    CalPage._renderMiniCal();
+    if(CalPage._selDay) CalPage._renderDayReminders(CalPage._selDay);
+    U.toast(idx>=0?'Reminder updated!':'Reminder added!');
+  }
+};
+
+/* ─── BOOT ─── */
+document.addEventListener('DOMContentLoaded',()=>{
+  Store.load();
+  Clock.init();
+  Setup.init();
+  Nav.go('setup');
+});
