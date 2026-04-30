@@ -18,6 +18,10 @@
     <button class="nav-btn" data-page="calendar" onclick="Nav.go('calendar')">Calendar</button>
   </div>
   <div class="nav-right">
+    <span id="streak-chip" class="streak-chip" title="Day-streak — generate a schedule each day to keep it alive" style="display:none">
+      <span class="streak-flame">🔥</span><span id="streak-count">0</span>
+    </span>
+    <button class="qa-btn" title="Quick add reminder (Ctrl/Cmd+K)" onclick="QuickAdd.open()">⌘K</button>
     <span id="clock-time" class="clock-time">--:--:--</span>
     <span id="clock-date" class="clock-date">Tempe, AZ</span>
   </div>
@@ -151,6 +155,18 @@
 
     <div class="card">
       <div class="card-num">07</div>
+      <div class="card-body">
+        <h2 class="card-title">Notifications</h2>
+        <p class="card-sub">Get reminders fired in your browser. Works while a Daycraft tab is open. <em>(Background firing arrives in the PWA update.)</em></p>
+        <div class="backup-row">
+          <button class="addbtn" onclick="Notify.request()">Enable notifications</button>
+          <span id="notif-status" class="notif-status">Click "Enable" to allow browser notifications.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">08</div>
       <div class="card-body">
         <h2 class="card-title">Data backup</h2>
         <p class="card-sub">Export all your schedules and reminders to a JSON file. Import to restore.</p>
@@ -494,6 +510,16 @@
       <button class="cancel-btn" onclick="Modals.closeRem()">Cancel</button>
       <button class="save-btn" onclick="Modals.saveRem()">Save</button>
     </div>
+  </div>
+</div>
+
+<!-- ══════════ QUICK ADD (Ctrl/Cmd+K) ══════════ -->
+<div class="overlay qa-overlay" id="qa-overlay" onclick="QuickAdd.close(event)">
+  <div class="modal qa-modal" onclick="event.stopPropagation()">
+    <div class="qa-prefix">⌘</div>
+    <input type="text" id="qa-input" class="qa-input" autocomplete="off" spellcheck="false"
+           placeholder='Try: "in 15m drink water"  ·  "tomorrow 9am gym"  ·  "2:30pm call mom"'>
+    <div class="qa-hint"><b>↵</b> add &nbsp;·&nbsp; <b>Esc</b> close &nbsp;·&nbsp; <b>Ctrl/⌘ K</b> toggle</div>
   </div>
 </div>
 

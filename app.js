@@ -43,6 +43,36 @@ const U = {
   uid(){ return 'id_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 };
 
+/* ─── STREAK ─── */
+const Streak = {
+  // Bump streak when today's schedule is generated. Resets if a day was skipped.
+  bump(){
+    const s=Store.get();
+    const todayK=U.nowKey();
+    if(s.lastStreakDate===todayK) return; // already counted today
+    const yesterdayK=U.addDays(todayK,-1);
+    s.streak = (s.lastStreakDate===yesterdayK ? (s.streak||0) : 0) + 1;
+    s.streakDays=[...(s.streakDays||[0,0,0,0,0,0,0]).slice(1),1];
+    s.lastStreakDate=todayK;
+    Store.save();
+    this.render();
+  },
+  render(){
+    const s=Store.get();
+    const el=document.getElementById('streak-chip');
+    const c=document.getElementById('streak-count');
+    if(!el||!c) return;
+    if(!s.streak||s.streak<1){ el.style.display='none'; return; }
+    // Auto-reset stale streak (last entry older than yesterday)
+    const todayK=U.nowKey(), yK=U.addDays(todayK,-1);
+    if(s.lastStreakDate&&s.lastStreakDate!==todayK&&s.lastStreakDate!==yK){
+      s.streak=0; Store.save(); el.style.display='none'; return;
+    }
+    el.style.display='flex';
+    c.textContent=s.streak;
+  }
+};
+
 /* ─── CLOCK ─── */
 const Clock = {
   init(){
@@ -93,6 +123,8 @@ const Storage = {
         Object.assign(Store.get(),parsed);
         Store.save();
         Setup.init();
+        Streak.render();
+        if(CalPage._selDay){ CalPage._renderMiniCal(); CalPage._renderReminders(); }
         U.toast('Backup imported successfully!');
       } catch(err){ U.toast('Import failed — invalid file.'); }
     };
@@ -113,6 +145,7 @@ const Setup = {
     document.getElementById('energy-hint').textContent=this.eDesc(s.energy);
     if(s.mood) document.querySelectorAll('.mood-chip').forEach(c=>{ if(c.dataset.mood===s.mood) c.classList.add('sel'); });
     const ak=document.getElementById('apikey-inp'); if(ak&&s.apiKey) ak.value=s.apiKey;
+    Notify._renderStatus();
   },
   mood(el){
     document.querySelectorAll('.mood-chip').forEach(c=>c.classList.remove('sel'));
@@ -205,7 +238,7 @@ const Setup = {
 
 /* ─── AI ─── */
 const AI = {
-  async call(prompt){
+  async call(prompt, ctx){
     const apiKey=Store.get().apiKey;
     if(!apiKey) throw new Error('No API key');
     const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
@@ -222,7 +255,57 @@ const AI = {
     if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e?.error?.message||`Groq ${res.status}`); }
     const data=await res.json();
     const raw=data.choices[0].message.content;
-    return JSON.parse(raw.replace(/```json|```/g,'').trim());
+    const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    const cleaned=this._validate(parsed, ctx);
+    if(!cleaned) throw new Error('AI returned invalid schedule');
+    return cleaned;
+  },
+
+  // Validate + auto-fix obvious issues. Returns cleaned array, or null if unrecoverable.
+  _validate(arr, ctx){
+    if(!Array.isArray(arr)||!arr.length) return null;
+    const COLORS=new Set(['teal','purple','coral','blue','pink','amber','gray']);
+    const TYPES=new Set(['interest','task','meal','break','blocked']);
+    const sm = ctx?.startTime ? U.t2m(ctx.startTime) : 0;
+    const em = ctx?.endTime   ? U.t2m(ctx.endTime)   : 1440;
+    const blocked = ctx?.blocked || [];
+
+    const hasStr=v=>typeof v==='string'&&v.trim().length>0;
+    const hitsBlocked=(s,e)=>blocked.some(b=>{
+      const bs=U.t2m(b.start), be=U.t2m(b.end);
+      const a=U.t2m(s), z=U.t2m(e);
+      return a<be && z>bs;
+    });
+
+    const out=[];
+    for(const it of arr){
+      if(!it||typeof it!=='object') continue;
+      if(!hasStr(it.time)||!hasStr(it.endTime)||!hasStr(it.title)) continue;
+      const a=U.t2m(it.time), b=U.t2m(it.endTime);
+      if(isNaN(a)||isNaN(b)||a>=b) continue;
+      if(a<sm||b>em) continue;
+      if(hitsBlocked(it.time,it.endTime)) continue;
+      out.push({
+        time:it.time,
+        endTime:it.endTime,
+        title:String(it.title).slice(0,120),
+        description:hasStr(it.description)?String(it.description).slice(0,400):'',
+        category:hasStr(it.category)?String(it.category).slice(0,40):'general',
+        color:COLORS.has(it.color)?it.color:'gray',
+        type:TYPES.has(it.type)?it.type:'interest',
+        swaps:Array.isArray(it.swaps)?it.swaps.filter(hasStr).slice(0,5):[]
+      });
+    }
+    if(!out.length) return null;
+    // sort + drop overlapping items (keep earlier)
+    out.sort((x,y)=>U.t2m(x.time)-U.t2m(y.time));
+    const final=[]; let lastEnd=-1;
+    for(const it of out){
+      if(U.t2m(it.time)<lastEnd) continue;
+      final.push(it);
+      lastEnd=U.t2m(it.endTime);
+    }
+    return final.length?final:null;
   },
   prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend){
     const bl=blocked.length?blocked.map(b=>`"${b.label}" ${b.start}–${b.end}`).join(', '):'none';
@@ -435,6 +518,26 @@ const TL = {
     TL.render('cal-timeline', sch, ctx);
     CalPage._updateProgress(ctx);
     GenPage._refreshResultCards();
+    TL._refreshNow();
+  },
+
+  // Highlight the block that contains the current time. Only on today's view.
+  _refreshNow(){
+    document.querySelectorAll('.tl-card.is-now').forEach(c=>c.classList.remove('is-now'));
+    const dk=CalPage._selDay;
+    if(!dk||dk!==U.nowKey()) return;
+    const sch=Store.get().schedules[dk];
+    if(!sch||!sch.length) return;
+    const now=U.t2m(U.nowTime());
+    let nowIdx=-1;
+    sch.forEach((it,i)=>{
+      if(it.type==='blocked') return;
+      const a=U.t2m(it.time), b=U.t2m(it.endTime||it.time);
+      if(a<=now&&now<b) nowIdx=i;
+    });
+    if(nowIdx<0) return;
+    const wrap=document.querySelector(`#cal-timeline .tl-block[data-gi="${nowIdx}"]`);
+    wrap?.querySelector('.tl-card')?.classList.add('is-now');
   }
 };
 
@@ -547,19 +650,14 @@ const GenPage = {
 
     try{
       const prompt=AI.prompt(U.dayName(dateKey),startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,isWkd);
-      const sched=await AI.call(prompt);
+      const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
       s.schedules[dateKey]=sched.map(x=>({...x,done:false}));
     } catch(e){
       s.schedules[dateKey]=Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec);
-      U.toast('Using smart fallback (add Groq key for AI generation).');
+      U.toast(e.message?.includes('API key')?'Using smart fallback (add Groq key for AI generation).':'AI failed — using smart fallback.');
     }
 
-    // streak
-    if(dateKey===U.nowKey()&&s.lastStreakDate!==dateKey){
-      s.streak=(s.streak||0)+1;
-      s.streakDays=[...s.streakDays.slice(1),1];
-      s.lastStreakDate=dateKey;
-    }
+    if(dateKey===U.nowKey()) Streak.bump();
     Store.save();
     this._showLoading(false);
     this._showResult([dateKey]);
@@ -593,7 +691,7 @@ const GenPage = {
       const dayMood=s.dayMoods[dk]||mood;
       try{
         const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd);
-        const sched=await AI.call(prompt);
+        const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
         s.schedules[dk]=sched.map(x=>({...x,done:false}));
       } catch(e){
         s.schedules[dk]=Fallback.build(dk,startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec);
@@ -774,18 +872,14 @@ const CalPage = {
         </div>`;
     } else {
       TL.render('cal-timeline', sched, dk);
+      TL._refreshNow();
     }
 
     this._renderDayReminders(dk);
   },
 
   _renderDayReminders(dk){
-    const rems=Store.get().reminders.filter(r=>r.date===dk||
-      (r.repeat==='daily')||
-      (r.repeat==='weekly'&&new Date(r.date+'T12:00:00').getDay()===new Date(dk+'T12:00:00').getDay())||
-      (r.repeat==='weekdays'&&[1,2,3,4,5].includes(new Date(dk+'T12:00:00').getDay()))||
-      (r.repeat==='weekends'&&[0,6].includes(new Date(dk+'T12:00:00').getDay()))
-    );
+    const rems=Store.get().reminders.filter(r=>CalPage._reminderMatches(r,dk));
     const CLRS={teal:'var(--teal)',purple:'var(--purple)',coral:'var(--coral)',blue:'var(--blue)',pink:'var(--pink)',amber:'var(--amber)'};
     const el=document.getElementById('cal-day-reminders');
     if(!rems.length){ el.innerHTML='<div class="no-rem">No reminders for this day.</div>'; return; }
@@ -831,7 +925,7 @@ const CalPage = {
     U.toast(`Regenerating ${U.dayName(dk)}...`);
     try{
       const prompt=AI.prompt(U.dayName(dk),startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec,U.isWeekend(dk));
-      const ns=await AI.call(prompt);
+      const ns=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
       s.schedules[dk]=ns.map(x=>({...x,done:false}));
     } catch(e){
       s.schedules[dk]=Fallback.build(dk,startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec);
@@ -851,6 +945,22 @@ const CalPage = {
 
   openReminderModal(dk){
     Modals.openRem(dk||this._selDay);
+  },
+
+  // Does reminder r occur on date dk? Gates by start date so a daily reminder
+  // created today doesn't backfill into past days.
+  _reminderMatches(r, dk){
+    if(!r||!dk) return false;
+    if(r.date===dk) return true;
+    if(!r.repeat||r.repeat==='none') return false;
+    if(dk<r.date) return false;
+    const dow=U.dowNum(dk);
+    if(r.repeat==='daily')    return true;
+    if(r.repeat==='weekly')   return U.dowNum(r.date)===dow;
+    if(r.repeat==='weekdays') return dow>=1&&dow<=5;
+    if(r.repeat==='weekends') return dow===0||dow===6;
+    if(r.repeat==='monthly')  return U.dayNum(r.date)===U.dayNum(dk);
+    return false;
   },
 
   _editRem(id){ Modals.openRem(null, id); },
@@ -1016,10 +1126,165 @@ const Modals = {
   }
 };
 
+/* ─── NOTIFY (foreground only — Week 2 adds service worker for background) ─── */
+const Notify = {
+  _fired:new Set(),
+  supported(){ return typeof Notification!=='undefined'; },
+  init(){ /* permission requested explicitly via Setup */ },
+  async request(){
+    if(!this.supported()){ U.toast('This browser does not support notifications.'); return; }
+    if(Notification.permission==='granted'){ U.toast('Notifications already enabled.'); return; }
+    const p=await Notification.requestPermission();
+    U.toast(p==='granted'?'Notifications enabled!':'Permission denied.');
+    this._renderStatus();
+  },
+  _renderStatus(){
+    const el=document.getElementById('notif-status');
+    if(!el) return;
+    if(!this.supported()){ el.textContent='Not supported in this browser.'; return; }
+    el.textContent = Notification.permission==='granted'
+      ? 'Enabled — reminders will fire while this tab is open.'
+      : Notification.permission==='denied'
+        ? 'Blocked — enable in your browser site settings.'
+        : 'Click "Enable" to allow browser notifications.';
+  },
+  tick(){
+    if(!this.supported()||Notification.permission!=='granted') return;
+    const todayK=U.nowKey();
+    const nowMin=U.t2m(U.nowTime());
+    const s=Store.get();
+    s.reminders.forEach(r=>{
+      if(!CalPage._reminderMatches(r,todayK)) return;
+      const remMin=U.t2m(r.time);
+      // fire within a 90s window after the trigger time
+      if(nowMin<remMin||nowMin-remMin>1) return;
+      const key=`${r.id}|${todayK}|${r.time}`;
+      if(this._fired.has(key)) return;
+      this._fired.add(key);
+      try{
+        const n=new Notification(r.title,{
+          body:r.notes||`${r.priority||'medium'} priority · ${r.time}`,
+          tag:key,
+          silent:false
+        });
+        n.onclick=()=>{ window.focus(); Nav.go('calendar'); CalPage.selectDay(todayK); n.close(); };
+      }catch(e){}
+    });
+  }
+};
+
+/* ─── QUICK ADD (Cmd/Ctrl+K) ─── */
+const QuickAdd = {
+  init(){
+    document.addEventListener('keydown',e=>{
+      if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); this.open(); return; }
+      if(e.key==='Escape'&&document.getElementById('qa-overlay')?.classList.contains('open')) this.close();
+      if(e.key==='Enter'&&document.activeElement?.id==='qa-input') this.submit();
+    });
+  },
+  open(){
+    document.getElementById('qa-overlay').classList.add('open');
+    setTimeout(()=>document.getElementById('qa-input').focus(),40);
+  },
+  close(e){
+    if(e&&e.target!==document.getElementById('qa-overlay')) return;
+    document.getElementById('qa-overlay').classList.remove('open');
+    document.getElementById('qa-input').value='';
+  },
+  submit(){
+    const raw=document.getElementById('qa-input').value.trim();
+    if(!raw) return;
+    const parsed=this.parse(raw);
+    if(!parsed.title){ U.toast('Add a title — e.g. "in 15m drink water".'); return; }
+    const rem={
+      id:U.uid(), title:parsed.title, date:parsed.date, time:parsed.time,
+      priority:'medium', color:'amber', repeat:'none', notes:''
+    };
+    Store.get().reminders.push(rem);
+    Store.save();
+    this.close();
+    CalPage._renderReminders();
+    CalPage._renderMiniCal();
+    if(CalPage._selDay) CalPage._renderDayReminders(CalPage._selDay);
+    U.toast(`Reminder set · ${U.shortDate(rem.date)} ${rem.time}`);
+  },
+  // Parse: "in 15m water", "in 2h call mom", "tomorrow 9am gym",
+  // "today 14:30 meeting", "9am gym", "14:30 meeting", or plain title (now+15m).
+  parse(s){
+    const todayK=U.nowKey();
+    const nowMin=U.t2m(U.nowTime());
+    const fmt=mins=>{
+      const total=((mins%1440)+1440)%1440;
+      return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+    };
+
+    // "in N m/h <title>"
+    let m=s.match(/^in\s+(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?\s+(.+)$/i);
+    if(m){
+      const n=parseInt(m[1]); const u=(m[2]||'min').toLowerCase();
+      const add=u.startsWith('h')?n*60:n;
+      const target=nowMin+add;
+      const date=target>=1440?U.addDays(todayK,Math.floor(target/1440)):todayK;
+      return { date, time:fmt(target), title:m[3].trim() };
+    }
+
+    // "(today|tomorrow) [time] <title>"
+    m=s.match(/^(today|tomorrow)\s+(.+)$/i);
+    if(m){
+      const date=m[1].toLowerCase()==='tomorrow'?U.addDays(todayK,1):todayK;
+      const rest=m[2];
+      const tm=rest.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.+)$/i);
+      if(tm){
+        const t=this._parseClock(tm[1],tm[2],tm[3]);
+        if(t!=null) return { date, time:fmt(t), title:tm[4].trim() };
+      }
+      return { date, time:'09:00', title:rest.trim() };
+    }
+
+    // "<time> <title>"
+    m=s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.+)$/i);
+    if(m && (m[3]||m[2])){ // require am/pm or :MM so "5 reps" doesn't get eaten
+      const t=this._parseClock(m[1],m[2],m[3]);
+      if(t!=null){
+        const date = t<nowMin ? U.addDays(todayK,1) : todayK;
+        return { date, time:fmt(t), title:m[4].trim() };
+      }
+    }
+
+    // default → 15 minutes from now
+    return { date:todayK, time:fmt(nowMin+15), title:s };
+  },
+  _parseClock(hh,mm,ampm){
+    let h=parseInt(hh); const mn=parseInt(mm||'0');
+    if(isNaN(h)||isNaN(mn)||mn>59) return null;
+    const a=(ampm||'').toLowerCase();
+    if(a==='pm'&&h<12) h+=12;
+    if(a==='am'&&h===12) h=0;
+    if(h>23) return null;
+    return h*60+mn;
+  }
+};
+
 /* ─── BOOT ─── */
 document.addEventListener('DOMContentLoaded',()=>{
   Store.load();
   Clock.init();
   Setup.init();
-  Nav.go('setup');
+  Streak.render();
+  Notify.init();
+  QuickAdd.init();
+
+  // First run = no interests yet → Setup. Otherwise land on today.
+  if(!Store.get().interests.length){
+    Nav.go('setup');
+  } else {
+    Nav.go('calendar');
+    CalPage.selectDay(U.nowKey());
+  }
+
+  // Live "now" tick + reminder firing
+  TL._refreshNow();
+  setInterval(()=>TL._refreshNow(), 30000);
+  Notify.tick();
+  setInterval(()=>Notify.tick(), 30000);
 });

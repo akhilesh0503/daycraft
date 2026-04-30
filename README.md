@@ -56,7 +56,7 @@ Most schedulers ask you to fill in tasks. Daycraft asks what you *love* — then
 
 ### 1. Download or clone
 ```bash
-git clone https://github.com/YOUR_USERNAME/daycraft.git
+git clone https://github.com/akhilesh0503/daycraft.git
 cd daycraft
 ```
 
