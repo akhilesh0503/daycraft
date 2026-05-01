@@ -8,6 +8,7 @@ html{scroll-behavior:smooth}
   --accent:#c9a96e;--accent2:#e8c98a;
   --teal:#5dcaa5;--purple:#9b87f5;--coral:#e87d5a;
   --pink:#e882b0;--blue:#6ab0f5;--amber:#e8a84a;
+  --blur-bg:rgba(9,9,15,0.7);
   --r:14px;--rs:9px;--rx:6px;
 }
 html.theme-light{
@@ -17,6 +18,7 @@ html.theme-light{
   --accent:#9c7c40;--accent2:#7a5e2a;
   --teal:#2a8c6c;--purple:#6b4ed6;--coral:#c25a3a;
   --pink:#c5559f;--blue:#3a7bc8;--amber:#b8843c;
+  --blur-bg:rgba(247,245,238,0.7);
 }
 html.theme-light body{
   background-image:
@@ -42,7 +44,7 @@ body{
   padding:18px 40px;max-width:1200px;margin:0 auto;
   position:sticky;top:0;z-index:50;
   backdrop-filter:blur(14px);
-  background:rgba(9,9,15,0.7);
+  background:var(--blur-bg);
 }
 .lp-logo{
   font-family:'DM Serif Display',serif;font-size:24px;color:var(--accent);
