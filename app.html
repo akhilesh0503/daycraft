@@ -40,7 +40,13 @@
       </button>
     </nav>
 
-    <button class="side-profile" id="side-profile-btn" onclick="Auth.openSignIn()" title="Sign in to sync across devices">
+    <div class="side-user-menu" id="side-user-menu" style="display:none">
+      <div class="sum-name" id="sum-name"></div>
+      <div class="sum-email" id="sum-email"></div>
+      <div class="sum-divider"></div>
+      <button class="sum-action" onclick="Auth.signOut()">Sign out</button>
+    </div>
+    <button class="side-profile" id="side-profile-btn" onclick="Auth.profileClick(event)" title="Sign in to sync across devices">
       <div class="side-avatar" id="side-avatar">G</div>
       <div class="side-profile-text">
         <div class="side-profile-name" id="side-profile-name">Guest</div>

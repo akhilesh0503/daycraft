@@ -1497,13 +1497,35 @@ const QuickAdd = {
 const Auth = {
   _user:null,                  // null = guest; { uid, name, email, photoURL } when signed in
   _wired:false,                // becomes true once Sync.init successfully boots Firebase
+  // Sidebar profile button: signed in → toggle popover; guest → open sign-in modal
+  profileClick(e){
+    if(e) e.stopPropagation();
+    if(this._user) this.toggleUserMenu();
+    else this.openSignIn();
+  },
   openSignIn(){
-    if(this._user){           // already signed in → offer sign-out
-      if(confirm(`Signed in as ${this._user.name||this._user.email}. Sign out?`)) this.signOut();
-      return;
-    }
     document.getElementById('signin-overlay').classList.add('open');
     this._renderFineprint();
+  },
+  toggleUserMenu(force){
+    const m=document.getElementById('side-user-menu');
+    if(!m||!this._user) return;
+    const open = force!==undefined ? force : m.style.display==='none';
+    if(open){
+      document.getElementById('sum-name').textContent  = this._user.name||'Signed in';
+      document.getElementById('sum-email').textContent = this._user.email||'';
+      m.style.display='block';
+      // Close on outside click — single global handler, removed when closed
+      this._dismiss = (ev)=>{
+        if(!m.contains(ev.target) && ev.target.id!=='side-profile-btn' && !document.getElementById('side-profile-btn').contains(ev.target)){
+          this.toggleUserMenu(false);
+        }
+      };
+      setTimeout(()=>document.addEventListener('click',this._dismiss),0);
+    } else {
+      m.style.display='none';
+      if(this._dismiss){ document.removeEventListener('click',this._dismiss); this._dismiss=null; }
+    }
   },
   closeSignIn(e){
     if(e&&e.target!==document.getElementById('signin-overlay')) return;
@@ -1524,12 +1546,14 @@ const Auth = {
   async signOut(){
     if(!this._wired) return;
     try{
+      this.toggleUserMenu(false);
       await Sync.signOut();
       U.toast('Signed out. Daycraft is now in guest mode.');
     }catch(e){ U.toast('Sign out failed.'); }
   },
   _onUserChange(user){
     this._user = user;
+    if(!user) this.toggleUserMenu(false);
     this._renderProfileChip();
   },
   _renderProfileChip(){
@@ -1539,11 +1563,16 @@ const Auth = {
     const btn=document.getElementById('side-profile-btn');
     if(!av) return;
     if(this._user){
-      const initial=(this._user.name||this._user.email||'?')[0].toUpperCase();
-      av.textContent=initial;
-      nm.textContent=this._user.name||this._user.email.split('@')[0];
+      // Use Google photoURL if present; fall back to first-letter initial.
+      // referrerpolicy avoids the occasional 403 on Google profile photos.
+      if(this._user.photoURL){
+        av.innerHTML=`<img src="${U.esc(this._user.photoURL)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.textContent='${U.esc((this._user.name||this._user.email||'?')[0].toUpperCase())}'">`;
+      } else {
+        av.textContent=(this._user.name||this._user.email||'?')[0].toUpperCase();
+      }
+      nm.textContent=this._user.name||(this._user.email||'').split('@')[0];
       mt.textContent='Synced';
-      btn.title=`Signed in as ${this._user.email}. Click to sign out.`;
+      btn.title='Account · click to open menu';
     } else {
       av.textContent='G';
       nm.textContent='Guest';
