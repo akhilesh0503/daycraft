@@ -477,7 +477,6 @@ const TL = {
         ${!isBlk?`<button class="tlbtn done" onclick="TL._done('${ctx}',${gi})">${isDone?'Undo':'Done'}</button>`:''}
         <button class="tlbtn swap-btn" onclick="TL._toggleSwap('${sid}')">Swap</button>
         <button class="tlbtn edit-btn" onclick="Modals.openBlock('${ctx}',${gi})">Edit</button>
-        ${!isBlk?`<button class="tlbtn del-btn" onclick="TL._delete('${ctx}',${gi})">Delete</button>`:''}
       </div>${swapsHTML}`;
 
     wrap.innerHTML=`
@@ -489,7 +488,10 @@ const TL = {
             <div class="tl-title">${item.title}</div>
             <div class="tl-dur">${mins} min${isBlk?' · unavailable':''}</div>
           </div>
-          <span class="tl-cat c-${item.color||'gray'}">${item.category}</span>
+          <div class="tl-top-right">
+            <span class="tl-cat c-${item.color||'gray'}">${item.category}</span>
+            ${!isBlk?`<button class="tl-x" title="Remove activity" onclick="TL._delete('${ctx}',${gi})">×</button>`:''}
+          </div>
         </div>
         <div class="tl-desc">${item.description}</div>
         ${actHTML}
