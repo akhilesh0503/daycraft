@@ -1315,6 +1315,14 @@ const Today = {
 
     // Today's reminders (right rail)
     this._renderTodayReminders(dk);
+
+    // Auto-hide the ⌘K hint card once the user has actually used the palette
+    // twice — it's helpful onboarding noise that gets stale fast otherwise.
+    try {
+      const used = parseInt(localStorage.getItem('dc_qk_uses')||'0', 10);
+      const tip = document.querySelector('.today-tip');
+      if(tip) tip.style.display = used >= 2 ? 'none' : '';
+    } catch(e){}
   },
 
   // Make sure TL._refreshNow finds the right element when on Today
@@ -1816,6 +1824,12 @@ const QuickAdd = {
     if(!raw) return;
     const parsed=this.parse(raw);
     if(!parsed.title){ U.toast('Add a title — e.g. "in 15m drink water".'); return; }
+    // Track usage so the Today rail's ⌘K hint card auto-hides once you've
+    // actually used the palette a couple of times.
+    try {
+      const used = parseInt(localStorage.getItem('dc_qk_uses')||'0', 10) + 1;
+      localStorage.setItem('dc_qk_uses', String(used));
+    } catch(e){}
     const rem={
       id:U.uid(), title:parsed.title, date:parsed.date, time:parsed.time,
       priority:'medium', color:'amber', repeat:'none', notes:''
