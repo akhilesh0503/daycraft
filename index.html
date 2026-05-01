@@ -15,6 +15,22 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
   <link rel="apple-touch-icon" href="/icons/icon-180.png">
   <script>
+    // Auth-aware redirect: if Firebase has a persisted session, skip the
+    // landing entirely and go straight to /app. Runs synchronously BEFORE
+    // any render so signed-in users never see a landing flash.
+    // Override with ?landing=1 (e.g. for showing the landing to a recruiter).
+    (function(){
+      try{
+        if(location.search.indexOf('landing=1') !== -1) return;
+        for(var i=0;i<localStorage.length;i++){
+          var k = localStorage.key(i);
+          if(k && k.indexOf('firebase:authUser:') === 0){
+            location.replace('/app');
+            return;
+          }
+        }
+      } catch(e){}
+    })();
     (function(){
       try{
         var t = localStorage.getItem('dc_theme') || 'auto';

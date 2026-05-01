@@ -767,6 +767,21 @@
   </div>
 </div>
 
+<!-- ══════════ IDLE WARNING (signed-in only, fires after 2h of inactivity) ══════════ -->
+<div class="overlay" id="idle-overlay">
+  <div class="modal idle-modal" onclick="event.stopPropagation()">
+    <div class="modal-body idle-body">
+      <div class="idle-icon">⏳</div>
+      <h3 class="idle-title">Still there?</h3>
+      <p class="idle-sub">
+        You've been quiet for a while. Daycraft will sign you out in
+        <strong id="idle-countdown">15:00</strong> to keep your account safe.
+      </p>
+      <button class="save-btn idle-action" onclick="Idle._iAmHere()">I'm still here</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════ QUICK ADD (Ctrl/Cmd+K) ══════════ -->
 <div class="overlay qa-overlay" id="qa-overlay" onclick="QuickAdd.close(event)">
   <div class="modal qa-modal" onclick="event.stopPropagation()">

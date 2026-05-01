@@ -1614,6 +1614,82 @@ const Notify = {
   }
 };
 
+/* ─── IDLE (signed-in only — 2h inactivity → 15min warn → sign out) ─── */
+const Idle = {
+  // Exposed as constants so tests / a future "idle timeout" setting can shrink them.
+  WARN_AFTER_MS: 2 * 60 * 60 * 1000,        // 2 hours of no activity
+  SIGN_OUT_AFTER_WARN_MS: 15 * 60 * 1000,    // 15 min after the warning shows
+  _events: ['mousemove','keydown','click','scroll','touchstart','wheel'],
+  _bound:false,
+  _warnTimer:null,
+  _countdownTimer:null,
+  _activityHandler:null,
+
+  init(){
+    if(this._bound) return;
+    this._activityHandler = ()=>this._onActivity();
+    this._events.forEach(ev =>
+      document.addEventListener(ev, this._activityHandler, { passive:true })
+    );
+    this._bound = true;
+    this._scheduleWarn();
+  },
+
+  cleanup(){
+    if(!this._bound) return;
+    this._events.forEach(ev => document.removeEventListener(ev, this._activityHandler));
+    this._bound = false;
+    clearTimeout(this._warnTimer); this._warnTimer = null;
+    clearInterval(this._countdownTimer); this._countdownTimer = null;
+    document.getElementById('idle-overlay')?.classList.remove('open');
+  },
+
+  _onActivity(){
+    // Once the warning is showing, only the explicit "I'm still here" button
+    // dismisses it. Stray mouse jitter doesn't reset.
+    if(this._countdownTimer) return;
+    this._scheduleWarn();
+  },
+
+  _scheduleWarn(){
+    clearTimeout(this._warnTimer);
+    this._warnTimer = setTimeout(()=>this._showWarn(), this.WARN_AFTER_MS);
+  },
+
+  _showWarn(){
+    this._warnTimer = null;
+    const overlay = document.getElementById('idle-overlay');
+    if(!overlay) return;
+    overlay.classList.add('open');
+    let remaining = Math.floor(this.SIGN_OUT_AFTER_WARN_MS / 1000);
+    const render = ()=>{
+      const m = Math.floor(remaining/60), s = remaining%60;
+      const el = document.getElementById('idle-countdown');
+      if(el) el.textContent = `${m}:${String(s).padStart(2,'0')}`;
+    };
+    render();
+    this._countdownTimer = setInterval(()=>{
+      remaining--;
+      render();
+      if(remaining <= 0){
+        clearInterval(this._countdownTimer);
+        this._countdownTimer = null;
+        overlay.classList.remove('open');
+        Auth.signOut();
+      }
+    }, 1000);
+  },
+
+  _iAmHere(){
+    if(this._countdownTimer){
+      clearInterval(this._countdownTimer);
+      this._countdownTimer = null;
+    }
+    document.getElementById('idle-overlay')?.classList.remove('open');
+    this._scheduleWarn();
+  }
+};
+
 /* ─── QUICK ADD (Cmd/Ctrl+K) ─── */
 const QuickAdd = {
   init(){
@@ -1767,7 +1843,10 @@ const Auth = {
   },
   _onUserChange(user){
     this._user = user;
-    if(!user){
+    if(user){
+      Idle.init();
+    } else {
+      Idle.cleanup();
       this._lastSyncedAt = null;
       this.toggleUserMenu(false);
     }
