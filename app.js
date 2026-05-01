@@ -992,6 +992,7 @@ const CalPage = {
     this._renderReminders();
     if(this._selDay) this._renderDayReminders(this._selDay);
     this._renderMiniCal();
+    if(document.getElementById('page-today').classList.contains('active')) Today.render();
     U.toast('Reminder deleted.');
   }
 };
@@ -1106,7 +1107,10 @@ const Today = {
           <div class="rem-meta">${r.time}</div>
           ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
         </div>
-        <button class="iconbtn del" onclick="CalPage._delRem('${r.id}');Today.render()">×</button>
+        <div class="rem-acts">
+          <button class="iconbtn" title="Edit" onclick="CalPage._editRem('${r.id}')">✎</button>
+          <button class="iconbtn del" title="Delete" onclick="CalPage._delRem('${r.id}')">×</button>
+        </div>
       </div>`).join('');
   },
 
@@ -1344,6 +1348,7 @@ const Modals = {
     CalPage._renderReminders();
     CalPage._renderMiniCal();
     if(CalPage._selDay) CalPage._renderDayReminders(CalPage._selDay);
+    if(document.getElementById('page-today').classList.contains('active')) Today.render();
     U.toast(idx>=0?'Reminder updated!':'Reminder added!');
   }
 };
@@ -1428,6 +1433,7 @@ const QuickAdd = {
     CalPage._renderReminders();
     CalPage._renderMiniCal();
     if(CalPage._selDay) CalPage._renderDayReminders(CalPage._selDay);
+    if(document.getElementById('page-today').classList.contains('active')) Today.render();
     U.toast(`Reminder set · ${U.shortDate(rem.date)} ${rem.time}`);
   },
   // Parse: "in 15m water", "in 2h call mom", "tomorrow 9am gym",

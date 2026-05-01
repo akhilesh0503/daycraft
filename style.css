@@ -96,6 +96,7 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .today-side-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .split-title.nomargin{margin-bottom:0}
 .pill-btn.sm{padding:4px 10px;font-size:11px}
+.rem-add-row{display:flex;gap:5px}
 .today-tip{display:flex;align-items:center;gap:12px;background:var(--bg)}
 .today-tip-key{background:var(--bg3);border:0.5px solid var(--b2);border-radius:var(--rx);padding:4px 9px;font-size:11px;color:var(--accent2);letter-spacing:.06em;flex-shrink:0}
 .today-tip-text{font-size:12px;color:var(--t3);line-height:1.55}

@@ -109,8 +109,11 @@
       <aside class="today-side">
         <div class="today-side-card">
           <div class="today-side-head">
-            <h4 class="split-title nomargin">Reminders</h4>
-            <button class="pill-btn sm" onclick="QuickAdd.open()">+ Quick</button>
+            <h4 class="split-title nomargin">Reminders today</h4>
+            <div class="rem-add-row">
+              <button class="pill-btn sm" title="Detailed reminder" onclick="CalPage.openReminderModal()">+ New</button>
+              <button class="pill-btn sm" title="Quick reminder (Ctrl/⌘K)" onclick="QuickAdd.open()">⌘K</button>
+            </div>
           </div>
           <div id="today-reminders"></div>
         </div>
