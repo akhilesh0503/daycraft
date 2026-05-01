@@ -75,12 +75,14 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .content{grid-area:content;min-height:calc(100vh - 56px)}
 .page{display:none}.page.active{display:block}
 
-/* mobile: collapse sidebar to drawer */
+/* mobile: collapse sidebar to drawer with a real (clickable) backdrop */
+.side-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:299;opacity:0;pointer-events:none;transition:opacity .2s ease}
 @media(max-width:780px){
   .app-shell{grid-template-columns:1fr;grid-template-rows:56px 1fr;grid-template-areas:"topbar" "content"}
   .sidebar{position:fixed;left:0;top:0;bottom:0;width:240px;transform:translateX(-100%);transition:transform .2s ease;z-index:300}
   body.side-open .sidebar{transform:translateX(0)}
-  body.side-open::after{content:'';position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:299}
+  .side-backdrop{display:block}
+  body.side-open .side-backdrop{opacity:1;pointer-events:auto}
   .mobile-menu{display:flex}
 }
 
