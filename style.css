@@ -346,6 +346,9 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .tlbtn.swap-btn:hover{border-color:var(--purple);color:var(--purple)}
 .tlbtn.edit-btn:hover{border-color:var(--blue);color:var(--blue)}
 .tlbtn.add-btn-tl:hover{border-color:var(--teal);color:var(--teal)}
+.tlbtn.del-btn:hover{border-color:var(--coral);color:var(--coral)}
+.pill-btn.destructive{color:var(--t3)}
+.pill-btn.destructive:hover{border-color:var(--coral);color:var(--coral)}
 
 /* swap panel */
 .swap-panel{margin-top:8px;background:var(--bg3);border:0.5px solid var(--b2);border-radius:var(--rs);padding:10px 12px;display:none}

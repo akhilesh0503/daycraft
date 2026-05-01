@@ -477,6 +477,7 @@ const TL = {
         ${!isBlk?`<button class="tlbtn done" onclick="TL._done('${ctx}',${gi})">${isDone?'Undo':'Done'}</button>`:''}
         <button class="tlbtn swap-btn" onclick="TL._toggleSwap('${sid}')">Swap</button>
         <button class="tlbtn edit-btn" onclick="Modals.openBlock('${ctx}',${gi})">Edit</button>
+        ${!isBlk?`<button class="tlbtn del-btn" onclick="TL._delete('${ctx}',${gi})">Delete</button>`:''}
       </div>${swapsHTML}`;
 
     wrap.innerHTML=`
@@ -514,6 +515,17 @@ const TL = {
     sch[gi].description=`Swapped to: ${title}. Make it great!`;
     sch[gi].swaps=(sch[gi].swaps||[]).filter(s=>s!==title);
     Store.save(); TL._refresh(ctx);
+  },
+
+  _delete(ctx, gi){
+    const sch=TL._getSchByCtx(ctx);
+    if(!sch||!sch[gi]) return;
+    const item=sch[gi];
+    if(!confirm(`Remove "${item.title}" from your schedule?`)) return;
+    sch.splice(gi,1);
+    Store.save();
+    TL._refresh(ctx);
+    U.toast('Activity removed.');
   },
 
   _onDrag(ctx, from, to){
@@ -897,6 +909,9 @@ const CalPage = {
     const sched=Store.get().schedules[dk];
     this._updateProgress(dk);
 
+    const clearBtn=document.getElementById('cal-clear-btn');
+    if(clearBtn) clearBtn.style.display = (sched && sched.length) ? 'inline-flex' : 'none';
+
     if(!sched||!sched.length){
       document.getElementById('cal-timeline').innerHTML=`
         <div class="no-sched">No schedule for this day yet.<br>
@@ -968,6 +983,20 @@ const CalPage = {
     U.toast('Day regenerated!');
   },
 
+  // Wipe the selected day's schedule entirely.
+  clearDay(){
+    if(!this._selDay) return;
+    const dk=this._selDay;
+    const sch=Store.get().schedules[dk];
+    if(!sch||!sch.length){ U.toast('No schedule for this day.'); return; }
+    if(!confirm(`Clear ${U.fmtDate(dk)}'s ${sch.length} activities?`)) return;
+    delete Store.get().schedules[dk];
+    Store.save();
+    this._renderDayDetail(dk);
+    this._renderMiniCal();
+    U.toast('Day cleared.');
+  },
+
   filter(el,f){
     this._filter=f;
     document.querySelectorAll('.rfbtn').forEach(b=>b.classList.remove('active'));
@@ -1032,6 +1061,8 @@ const Today = {
       btn.querySelector('.primary-btn-main').textContent = hasSched ? 'Regenerate day' : 'Plan my day';
       btn.querySelector('.primary-btn-sub').textContent  = hasSched ? 'Replace today\'s schedule' : 'AI builds your schedule';
     }
+    const clearBtn=document.getElementById('today-clear-btn');
+    if(clearBtn) clearBtn.style.display = hasSched ? 'inline-flex' : 'none';
 
     // Progress
     const progWrap=document.getElementById('today-progress');
@@ -1129,6 +1160,19 @@ const Today = {
   planDay(){
     GenPage._returnToToday=true;
     Nav.go('generate');
+  },
+
+  // Wipe today's schedule entirely (different from Regenerate, which replaces).
+  clearDay(){
+    const dk=U.nowKey();
+    const sch=Store.get().schedules[dk];
+    if(!sch||!sch.length){ U.toast('Nothing to clear.'); return; }
+    if(!confirm(`Clear today's ${sch.length} activities? You can plan again any time.`)) return;
+    delete Store.get().schedules[dk];
+    Store.save();
+    Today.render();
+    CalPage._renderMiniCal && CalPage._renderMiniCal();
+    U.toast("Today's schedule cleared.");
   }
 };
 

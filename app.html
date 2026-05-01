@@ -91,6 +91,7 @@
           <span class="primary-btn-main">Plan my day</span>
           <span class="primary-btn-sub">AI builds your schedule</span>
         </button>
+        <button class="pill-btn destructive" id="today-clear-btn" onclick="Today.clearDay()" style="display:none">✕ Clear day</button>
       </div>
     </div>
 
@@ -474,6 +475,7 @@
               <option>Creative</option><option>Tired</option><option>Anxious</option>
             </select>
             <button class="pill-btn" onclick="CalPage.regenDay()">↺ Regen day</button>
+            <button class="pill-btn destructive" id="cal-clear-btn" onclick="CalPage.clearDay()" style="display:none">✕ Clear day</button>
             <button class="accent-btn sm" onclick="CalPage.openReminderModal()">+ Reminder</button>
           </div>
         </div>
