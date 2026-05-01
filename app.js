@@ -2080,10 +2080,14 @@ const Sync = {
         Auth._onUserChange({ uid:user.uid, name:user.displayName, email:user.email, photoURL:user.photoURL });
         await this._pullThenSubscribe(user.uid);
       });
-      // If user came from landing's "Sign in" CTA, surface the modal.
+      // If user came from landing's "Sign in" CTA, surface the modal —
+      // but only if they aren't already signed in (Firebase may have a
+      // persisted session that the listener has already restored).
       if(sessionStorage.getItem('dc_signin_intent')){
         sessionStorage.removeItem('dc_signin_intent');
-        Auth.openSignIn();
+        if(!this._auth.currentUser){
+          Auth.openSignIn();
+        }
       }
     } catch(e){
       console.error('Sync init failed', e);
