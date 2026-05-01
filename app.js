@@ -18,13 +18,12 @@ const Store = (() => {
   const load = () => { try { const r=localStorage.getItem(KEY); if(r) Object.assign(d,JSON.parse(r)); } catch(e){} };
   const save = () => { try { localStorage.setItem(KEY,JSON.stringify(d)); } catch(e){} };
   const get  = () => d;
-  // Wipe everything (sign-out / user-change). The Groq apiKey is device-local
-  // and never synced — preserve it so users don't have to re-enter on every login.
+  // Wipe everything (sign-out / user-change). The Groq apiKey is now part
+  // of the synced doc — on sign-in it comes back from cloud; on sign-out
+  // it's gone (you'd be signing into a different account anyway).
   const reset = () => {
-    const apiKey = d.apiKey;
     Object.keys(d).forEach(k => delete d[k]);
     Object.assign(d, defaults());
-    if(apiKey) d.apiKey = apiKey;
     save();
   };
   return { load, save, get, reset };
@@ -2121,14 +2120,12 @@ const Sync = {
     try{
       const snap = await this._fbStore.getDoc(ref);
       if(snap.exists()){
-        // Cloud wins entirely — replace local. The Groq apiKey is device-only,
-        // so we restore it after the wipe.
+        // Cloud wins entirely — replace local. apiKey is synced now, so the
+        // user's Groq key follows them across devices without re-entry.
         const cloud = snap.data();
         const local = Store.get();
-        const apiKey = local.apiKey;
         Object.keys(local).forEach(k => delete local[k]);
         Object.assign(local, cloud);
-        if(apiKey) local.apiKey = apiKey;
         Store.save();
       } else {
         // First-ever sign-in for this user → seed Firestore from current local
@@ -2146,10 +2143,8 @@ const Sync = {
         if(!snap.exists()) return;
         const cloud=snap.data();
         const local=Store.get();
-        const apiKey=local.apiKey;
         Object.keys(local).forEach(k=>delete local[k]);
         Object.assign(local, cloud);
-        if(apiKey) local.apiKey = apiKey;
         if(document.getElementById('page-today').classList.contains('active')) Today.render();
         if(document.getElementById('page-calendar').classList.contains('active')) CalPage.render();
         Streak.render();
@@ -2174,10 +2169,11 @@ const Sync = {
       }
     } catch(e){ console.error('pullThenSubscribe', e); }
   },
-  // Firestore can't store undefined; also strip device-only fields.
+  // Firestore can't store undefined; strip internal flags only.
+  // apiKey IS synced — users with the Groq key set on one device get it
+  // on every signed-in device, no re-entry needed.
   _cleanForFirestore(obj){
     const out = JSON.parse(JSON.stringify(obj));
-    delete out.apiKey;             // device-only, never sync
     delete out._wrappedForSync;    // internal flag, never sync
     delete out._origSave;          // internal ref, never sync
     return out;

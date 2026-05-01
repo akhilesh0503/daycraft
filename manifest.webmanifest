@@ -2,7 +2,7 @@
   "name": "Daycraft",
   "short_name": "Daycraft",
   "description": "Interest-first day planner. Tell it what you love; AI builds your day around that.",
-  "start_url": "/app",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
