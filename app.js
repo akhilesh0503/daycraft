@@ -7,17 +7,27 @@
 /* ─── STORE ─── */
 const Store = (() => {
   const KEY = 'daycraft_v3';
-  let d = {
+  const defaults = () => ({
     mood:'', energy:6, interests:[], blocked:[], tasks:[], recurring:[], apiKey:'',
     schedules:{},   // dateKey => [{...item, done}]
     dayMoods:{},    // dateKey => mood string
     reminders:[],
     streak:0, streakDays:[0,0,0,0,0,0,0], lastStreakDate:''
-  };
+  });
+  let d = defaults();
   const load = () => { try { const r=localStorage.getItem(KEY); if(r) Object.assign(d,JSON.parse(r)); } catch(e){} };
   const save = () => { try { localStorage.setItem(KEY,JSON.stringify(d)); } catch(e){} };
   const get  = () => d;
-  return { load, save, get };
+  // Wipe everything (sign-out / user-change). The Groq apiKey is device-local
+  // and never synced — preserve it so users don't have to re-enter on every login.
+  const reset = () => {
+    const apiKey = d.apiKey;
+    Object.keys(d).forEach(k => delete d[k]);
+    Object.assign(d, defaults());
+    if(apiKey) d.apiKey = apiKey;
+    save();
+  };
+  return { load, save, get, reset };
 })();
 
 /* ─── UTILS ─── */
@@ -1229,16 +1239,42 @@ const Modals = {
     const ctx=this._blockCtx, gi=this._blockGi;
     const sch=Store.get().schedules[ctx];
     if(!sch||gi===null) return;
+
+    const newStart = document.getElementById('be-start').value;
+    const newEnd   = document.getElementById('be-end').value;
+    const conflict = Modals._findConflict(sch, newStart, newEnd, gi);
+    if(conflict){
+      U.toast(`Time clashes with "${conflict.title}" (${conflict.time}–${conflict.endTime})`);
+      return;
+    }
+
     sch[gi].title=document.getElementById('be-title').value;
     sch[gi].description=document.getElementById('be-desc').value;
-    sch[gi].time=document.getElementById('be-start').value;
-    sch[gi].endTime=document.getElementById('be-end').value;
+    sch[gi].time=newStart;
+    sch[gi].endTime=newEnd;
     sch[gi].category=document.getElementById('be-category').value;
     sch[gi].color=document.getElementById('be-color').value;
+    sch.sort((a,b)=>U.t2m(a.time)-U.t2m(b.time));
     Store.save();
     document.getElementById('block-edit-overlay').classList.remove('open');
     TL._refresh(ctx);
     U.toast('Activity updated!');
+  },
+
+  // Returns the first block in `sch` that overlaps [newStart, newEnd) and
+  // is not at index `excludeIdx`. Also enforces start < end.
+  _findConflict(sch, newStart, newEnd, excludeIdx){
+    if(!newStart||!newEnd) return null;
+    const a=U.t2m(newStart), b=U.t2m(newEnd);
+    if(a>=b){ U.toast('End time must be after start time.'); return { title:'(invalid time)', time:newStart, endTime:newEnd }; }
+    for(let i=0;i<sch.length;i++){
+      if(i===excludeIdx) continue;
+      const it=sch[i];
+      if(!it.time||!it.endTime) continue;
+      const s=U.t2m(it.time), e=U.t2m(it.endTime);
+      if(a < e && b > s) return it;
+    }
+    return null;
   },
 
   // ADD CUSTOM ACTIVITY
@@ -1267,15 +1303,23 @@ const Modals = {
     const ctx=this._addCtx;
     const title=document.getElementById('aa-title').value.trim();
     if(!title){ U.toast('Enter a title.'); return; }
+    const newStart=document.getElementById('aa-start').value;
+    const newEnd=document.getElementById('aa-end').value;
+    const sch=Store.get().schedules[ctx];
+    if(sch){
+      const conflict = Modals._findConflict(sch, newStart, newEnd, -1);
+      if(conflict){
+        U.toast(`Time clashes with "${conflict.title}" (${conflict.time}–${conflict.endTime})`);
+        return;
+      }
+    }
     const newItem={
-      time:document.getElementById('aa-start').value,
-      endTime:document.getElementById('aa-end').value,
+      time:newStart, endTime:newEnd,
       title, description:document.getElementById('aa-desc').value,
       category:document.getElementById('aa-category').value||'custom',
       color:document.getElementById('aa-color').value,
       type:'interest', swaps:Store.get().interests.slice(0,3), done:false
     };
-    const sch=Store.get().schedules[ctx];
     if(sch){
       sch.splice(this._addAfterGi+1,0,newItem);
       sch.sort((a,b)=>U.t2m(a.time)-U.t2m(b.time));
@@ -1619,14 +1663,34 @@ const Sync = {
       this._fbAuth=fbAuth; this._fbStore=fbStore;
       Auth._wired=true;
       // Watch auth state — survives reloads and the redirect from Google.
+      // Distinguishes three transitions:
+      //   guest → user      = first sign-in (or boot with persisted session)
+      //   userA → userB     = different account took over: wipe local first
+      //   user → guest      = signed out: wipe local + redirect to landing
       fbAuth.onAuthStateChanged(this._auth, async user=>{
-        if(user){
-          Auth._onUserChange({ uid:user.uid, name:user.displayName, email:user.email, photoURL:user.photoURL });
-          await this._pullThenSubscribe(user.uid);
-        } else {
-          Auth._onUserChange(null);
-          if(this._unsubFromSnapshot) this._unsubFromSnapshot();
+        const oldUid = Auth._user?.uid || null;
+        const newUid = user?.uid || null;
+
+        // Different account or signed out → kill subscription + clear local cache
+        if(oldUid && oldUid !== newUid){
+          if(this._unsubFromSnapshot){ this._unsubFromSnapshot(); this._unsubFromSnapshot=null; }
+          // Patch Store.save back to its original (no longer auto-pushes for old user)
+          if(Store._origSave){ Store.save = Store._origSave; Store._wrappedForSync = false; }
+          Store.reset();
         }
+
+        // Signed out — go home
+        if(!newUid){
+          Auth._onUserChange(null);
+          if(oldUid && location.pathname.startsWith('/app')){
+            location.href = '/';
+            return;
+          }
+          return;
+        }
+
+        Auth._onUserChange({ uid:user.uid, name:user.displayName, email:user.email, photoURL:user.photoURL });
+        await this._pullThenSubscribe(user.uid);
       });
       // If user came from landing's "Sign in" CTA, surface the modal.
       if(sessionStorage.getItem('dc_signin_intent')){
@@ -1645,40 +1709,52 @@ const Sync = {
   },
   async signOut(){ await this._fbAuth.signOut(this._auth); },
 
-  // Pull the user's stored doc, merge it into Store, then subscribe to
-  // future Firestore changes for cross-device live updates. Last-write-wins.
+  // Pull the user's stored doc, replace local with it, then subscribe to
+  // future Firestore changes for cross-device live updates.
   async _pullThenSubscribe(uid){
     const ref = this._fbStore.doc(this._db, `users/${uid}`);
     try{
       const snap = await this._fbStore.getDoc(ref);
       if(snap.exists()){
+        // Cloud wins entirely — replace local. The Groq apiKey is device-only,
+        // so we restore it after the wipe.
         const cloud = snap.data();
-        // Cloud wins for arrays of records; local wins for empty fields.
         const local = Store.get();
-        const merged = { ...local, ...cloud };
-        Object.assign(local, merged);
+        const apiKey = local.apiKey;
+        Object.keys(local).forEach(k => delete local[k]);
+        Object.assign(local, cloud);
+        if(apiKey) local.apiKey = apiKey;
         Store.save();
       } else {
-        // First-ever sign-in for this user → seed Firestore from local data.
+        // First-ever sign-in for this user → seed Firestore from current local
+        // (carries any guest data the user collected before signing in).
         await this._fbStore.setDoc(ref, this._cleanForFirestore(Store.get()));
       }
+      // Re-render visible page after the data swap
+      Streak.render();
+      if(document.getElementById('page-today').classList.contains('active'))    Today.render();
+      if(document.getElementById('page-calendar').classList.contains('active')) CalPage.render();
+
       // Live subscribe
       this._unsubFromSnapshot = this._fbStore.onSnapshot(ref, snap=>{
         if(!snap.exists()) return;
         const cloud=snap.data();
-        Object.assign(Store.get(), cloud);
-        // Re-render whatever page is visible
+        const local=Store.get();
+        const apiKey=local.apiKey;
+        Object.keys(local).forEach(k=>delete local[k]);
+        Object.assign(local, cloud);
+        if(apiKey) local.apiKey = apiKey;
         if(document.getElementById('page-today').classList.contains('active')) Today.render();
         if(document.getElementById('page-calendar').classList.contains('active')) CalPage.render();
         Streak.render();
       });
-      // Patch Store.save to also push to Firestore. We wrap once.
+      // Patch Store.save to also push to Firestore. We wrap once and remember
+      // the original so we can unwrap on user-change.
       if(!Store._wrappedForSync){
-        const origSave = Store.save;
+        Store._origSave = Store.save;
         Store.save = (...args)=>{
-          origSave.apply(Store,args);
-          if(Auth._user) {
-            // Debounce a write
+          Store._origSave.apply(Store,args);
+          if(Auth._user){
             clearTimeout(Sync._writeTimer);
             Sync._writeTimer = setTimeout(()=>{
               this._fbStore.setDoc(ref, Sync._cleanForFirestore(Store.get())).catch(()=>{});
@@ -1689,9 +1765,13 @@ const Sync = {
       }
     } catch(e){ console.error('pullThenSubscribe', e); }
   },
-  // Firestore can't store undefined. Strip them.
+  // Firestore can't store undefined; also strip device-only fields.
   _cleanForFirestore(obj){
-    return JSON.parse(JSON.stringify(obj));
+    const out = JSON.parse(JSON.stringify(obj));
+    delete out.apiKey;             // device-only, never sync
+    delete out._wrappedForSync;    // internal flag, never sync
+    delete out._origSave;          // internal ref, never sync
+    return out;
   }
 };
 
