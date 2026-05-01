@@ -8,6 +8,23 @@
   <meta property="og:title" content="Daycraft — interest-first day planner">
   <meta property="og:description" content="Tell Daycraft what you love. AI builds your day around it.">
   <meta name="theme-color" content="#09090f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Daycraft">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
+  <link rel="apple-touch-icon" href="/icons/icon-180.png">
+  <script>
+    (function(){
+      try{
+        var t = localStorage.getItem('dc_theme') || 'auto';
+        var active = t === 'auto'
+          ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : t;
+        document.documentElement.classList.add('theme-' + active);
+      } catch(e){}
+    })();
+  </script>
   <link rel="stylesheet" href="landing.css">
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
 </head>

@@ -72,6 +72,39 @@ const U = {
   uid(){ return 'id_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 };
 
+/* ─── THEME (light / dark / auto) ─── */
+const Theme = {
+  KEY:'dc_theme',
+  // Apply the theme: toggle <html class="theme-light"> or "theme-dark".
+  // The inline boot script in <head> does this before first paint; this
+  // method handles changes after boot.
+  apply(){
+    const pref=this.pref();
+    const active = pref==='auto'
+      ? (matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')
+      : pref;
+    document.documentElement.classList.toggle('theme-light', active==='light');
+    document.documentElement.classList.toggle('theme-dark',  active==='dark');
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if(meta) meta.setAttribute('content', active==='light' ? '#f7f5ee' : '#09090f');
+  },
+  pref(){ try { return localStorage.getItem(this.KEY)||'auto'; } catch(e){ return 'auto'; } },
+  set(v){
+    try { localStorage.setItem(this.KEY,v); } catch(e){}
+    this.apply();
+    document.querySelectorAll('.theme-opt').forEach(b=>b.classList.toggle('active', b.dataset.theme===v));
+  },
+  init(){
+    this.apply();
+    const cur=this.pref();
+    document.querySelectorAll('.theme-opt').forEach(b=>b.classList.toggle('active', b.dataset.theme===cur));
+    // Re-apply if the OS theme flips while user is on auto
+    matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{
+      if(this.pref()==='auto') this.apply();
+    });
+  }
+};
+
 /* ─── STREAK ─── */
 const Streak = {
   // Bump streak when today's schedule is generated. Resets if a day was skipped.
@@ -1696,9 +1729,13 @@ const Auth = {
   },
   _onUserChange(user){
     this._user = user;
-    if(!user) this.toggleUserMenu(false);
+    if(!user){
+      this._lastSyncedAt = null;
+      this.toggleUserMenu(false);
+    }
     this._renderProfileChip();
   },
+  _lastSyncedAt:null,
   _renderProfileChip(){
     const av=document.getElementById('side-avatar');
     const nm=document.getElementById('side-profile-name');
@@ -1714,7 +1751,7 @@ const Auth = {
         av.textContent=(this._user.name||this._user.email||'?')[0].toUpperCase();
       }
       nm.textContent=this._user.name||(this._user.email||'').split('@')[0];
-      mt.textContent='Synced';
+      mt.textContent=this._syncedAgoText();
       btn.title='Account · click to open menu';
     } else {
       av.textContent='G';
@@ -1722,6 +1759,22 @@ const Auth = {
       mt.textContent= this._wired ? 'Sign in to sync' : 'Local only';
       btn.title='Sign in to sync across devices';
     }
+  },
+  _syncedAgoText(){
+    if(!this._lastSyncedAt) return 'Synced';
+    const s=Math.max(0, Math.floor((Date.now()-this._lastSyncedAt)/1000));
+    if(s<5)    return 'Synced just now';
+    if(s<60)   return `Synced ${s}s ago`;
+    const m=Math.floor(s/60);
+    if(m<60)   return `Synced ${m}m ago`;
+    const h=Math.floor(m/60);
+    if(h<24)   return `Synced ${h}h ago`;
+    return 'Synced over a day ago';
+  },
+  noteSynced(){
+    this._lastSyncedAt = Date.now();
+    const mt=document.getElementById('side-profile-meta');
+    if(mt && this._user) mt.textContent = this._syncedAgoText();
   },
   _renderFineprint(){
     const fp=document.getElementById('signin-fineprint');
@@ -1829,6 +1882,7 @@ const Sync = {
         // (carries any guest data the user collected before signing in).
         await this._fbStore.setDoc(ref, this._cleanForFirestore(Store.get()));
       }
+      Auth.noteSynced();
       // Re-render visible page after the data swap
       Streak.render();
       if(document.getElementById('page-today').classList.contains('active'))    Today.render();
@@ -1846,6 +1900,7 @@ const Sync = {
         if(document.getElementById('page-today').classList.contains('active')) Today.render();
         if(document.getElementById('page-calendar').classList.contains('active')) CalPage.render();
         Streak.render();
+        Auth.noteSynced();
       });
       // Patch Store.save to also push to Firestore. We wrap once and remember
       // the original so we can unwrap on user-change.
@@ -1856,7 +1911,9 @@ const Sync = {
           if(Auth._user){
             clearTimeout(Sync._writeTimer);
             Sync._writeTimer = setTimeout(()=>{
-              this._fbStore.setDoc(ref, Sync._cleanForFirestore(Store.get())).catch(()=>{});
+              this._fbStore.setDoc(ref, Sync._cleanForFirestore(Store.get()))
+                .then(()=>Auth.noteSynced())
+                .catch(()=>{});
             }, 600);
           }
         };
@@ -1882,8 +1939,15 @@ document.addEventListener('DOMContentLoaded',()=>{
   Streak.render();
   Notify.init();
   QuickAdd.init();
+  Theme.init();
   Auth._renderProfileChip();
   Sync.init(); // no-op until CONFIG is set
+
+  // Register the service worker on real domains. Skip on localhost to keep
+  // the e2e test runs clean (no stale cache between runs).
+  if('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  }
 
   // First run → onboarding modal + land on Today.
   // Returning users → straight to Today.
@@ -1892,7 +1956,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     Onboard.open();
   }
 
-  // Live ticks: NOW indicator (Today + Calendar) + reminder firing
+  // Live ticks: NOW indicator (Today + Calendar) + reminder firing + sync chip
   const tick=()=>{
     TL._refreshNow();
     if(document.getElementById('page-today').classList.contains('active')){
@@ -1901,6 +1965,11 @@ document.addEventListener('DOMContentLoaded',()=>{
       Today._highlightNow();
     }
     Notify.tick();
+    // Refresh "Synced X ago" text in the sidebar without re-rendering the chip
+    if(Auth._user && Auth._lastSyncedAt){
+      const mt=document.getElementById('side-profile-meta');
+      if(mt) mt.textContent = Auth._syncedAgoText();
+    }
   };
   tick();
   setInterval(tick, 30000);

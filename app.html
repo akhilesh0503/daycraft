@@ -4,6 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Daycraft</title>
+  <meta name="description" content="Interest-first day planner. Tell it what you love; AI builds your day around that.">
+  <meta name="theme-color" content="#09090f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Daycraft">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
+  <link rel="apple-touch-icon" href="/icons/icon-180.png">
+  <script>
+    // Apply theme before first paint to avoid a dark→light flash
+    (function(){
+      try{
+        var t = localStorage.getItem('dc_theme') || 'auto';
+        var active = t === 'auto'
+          ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : t;
+        document.documentElement.classList.add('theme-' + active);
+      } catch(e){}
+    })();
+  </script>
   <link rel="stylesheet" href="style.css">
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
 </head>
@@ -283,6 +304,19 @@
 
     <div class="card">
       <div class="card-num">08</div>
+      <div class="card-body">
+        <h2 class="card-title">Appearance</h2>
+        <p class="card-sub">Auto follows your system. Pick one if you want it pinned.</p>
+        <div class="theme-row">
+          <button class="theme-opt" data-theme="auto"  onclick="Theme.set('auto')">Auto</button>
+          <button class="theme-opt" data-theme="light" onclick="Theme.set('light')">Light</button>
+          <button class="theme-opt" data-theme="dark"  onclick="Theme.set('dark')">Dark</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">09</div>
       <div class="card-body">
         <h2 class="card-title">Data backup</h2>
         <p class="card-sub">Export all your schedules and reminders to a JSON file. Import to restore.</p>

@@ -10,6 +10,19 @@ html{scroll-behavior:smooth}
   --pink:#e882b0;--blue:#6ab0f5;--amber:#e8a84a;
   --r:14px;--rs:9px;--rx:6px;
 }
+html.theme-light{
+  --bg:#f7f5ee;--bg2:#fffdf6;--bg3:#efeae0;--bg4:#e6dfce;--bg5:#d8d0bc;
+  --b1:rgba(20,15,5,0.07);--b2:rgba(20,15,5,0.13);--b3:rgba(20,15,5,0.22);
+  --t1:#1a1814;--t2:#5a544a;--t3:#8c8676;
+  --accent:#9c7c40;--accent2:#7a5e2a;
+  --teal:#2a8c6c;--purple:#6b4ed6;--coral:#c25a3a;
+  --pink:#c5559f;--blue:#3a7bc8;--amber:#b8843c;
+}
+html.theme-light body{
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(156,124,64,0.12), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 30%, rgba(107,78,214,0.06), transparent 60%);
+}
 
 body{
   background:var(--bg);

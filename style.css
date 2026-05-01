@@ -11,6 +11,23 @@ html{scroll-behavior:smooth}
   --r:14px;--rs:9px;--rx:6px;
 }
 
+/* Light theme — paper cream + darker gold for contrast. Applied when
+   <html class="theme-light"> is set (an inline boot script does this before
+   first paint to avoid a dark→light flash). */
+html.theme-light{
+  --bg:#f7f5ee;--bg2:#fffdf6;--bg3:#efeae0;--bg4:#e6dfce;--bg5:#d8d0bc;
+  --b1:rgba(20,15,5,0.07);--b2:rgba(20,15,5,0.13);--b3:rgba(20,15,5,0.22);
+  --t1:#1a1814;--t2:#5a544a;--t3:#8c8676;
+  --accent:#9c7c40;--accent2:#7a5e2a;
+  --teal:#2a8c6c;--purple:#6b4ed6;--coral:#c25a3a;
+  --pink:#c5559f;--blue:#3a7bc8;--amber:#b8843c;--gray:#6c6b78;
+}
+/* The Google sign-in button is already white-on-white-button — no change there.
+   But the in-app Cmd+K modal shouldn't keep its dark fill on light. */
+html.theme-light .toast{box-shadow:0 8px 28px rgba(40,30,10,.18)}
+html.theme-light .lp-cta.secondary{border-color:#dcd5c4}
+html.theme-light .lp-mock-bar,html.theme-light .lp-mock-side{background:var(--bg3)}
+
 body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-serif;font-size:15px;line-height:1.6;min-height:100vh}
 
 /* ── APP SHELL (sidebar + topbar + content) ── */
@@ -197,6 +214,10 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .delbtn{background:none;border:none;color:var(--t3);cursor:pointer;font-size:17px;line-height:1;transition:color .15s;padding:2px 4px}
 .delbtn:hover{color:var(--coral)}
 .backup-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.theme-row{display:flex;gap:8px;flex-wrap:wrap}
+.theme-opt{background:var(--bg3);border:0.5px solid var(--b2);border-radius:var(--rs);padding:8px 18px;color:var(--t2);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;transition:all .15s;min-width:80px}
+.theme-opt:hover{border-color:var(--b3);color:var(--t1)}
+.theme-opt.active{background:var(--bg4);border-color:var(--accent);color:var(--accent2)}
 .notif-status{font-size:12px;color:var(--t3);font-style:italic}
 
 /* ── GENERATE PAGE ── */
