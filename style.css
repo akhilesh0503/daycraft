@@ -130,6 +130,39 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .today-tip-text{font-size:12px;color:var(--t3);line-height:1.55}
 .today-tip-text i{color:var(--t2);font-style:italic}
 
+/* ── SETTINGS COLLAPSIBLE SECTIONS ── */
+.settings-section{
+  margin-bottom:14px;
+  background:var(--bg2);
+  border:0.5px solid var(--b1);
+  border-radius:var(--r);
+  transition:border-color .2s;
+}
+.settings-section[open]{border-color:var(--b2)}
+.settings-section > summary{
+  list-style:none;cursor:pointer;
+  padding:18px 22px;
+  display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  transition:color .15s;
+}
+.settings-section > summary::-webkit-details-marker{display:none}
+.settings-section > summary::before{
+  content:'▸';color:var(--t3);transition:transform .2s;font-size:11px;flex-shrink:0;line-height:1;align-self:center;
+}
+.settings-section[open] > summary::before{transform:rotate(90deg)}
+.settings-section .section-title{
+  font-family:'DM Serif Display',serif;font-size:18px;color:var(--t1);line-height:1.2;
+}
+.settings-section .section-meta{
+  font-size:12px;color:var(--t3);line-height:1.4;
+}
+.settings-section .section-body{padding:0 0 6px 0}
+.settings-section .section-body .card{
+  margin:0 14px 10px;background:transparent;border-color:var(--b1);
+}
+.settings-section .section-body .card:first-child{margin-top:4px}
+.settings-section .section-body .card:last-child{margin-bottom:14px}
+
 /* ── SETUP / SETTINGS ── */
 .setup-wrap{max-width:760px;margin:0 auto;padding:32px 28px 80px}
 .settings-wrap{max-width:760px;margin:0 auto;padding:32px 28px 80px}
