@@ -2047,6 +2047,9 @@ const Sync = {
       this._auth = fbAuth.getAuth(app);
       this._db   = fbStore.getFirestore(app);
       this._fbAuth=fbAuth; this._fbStore=fbStore;
+      // Pick up the result of any redirect-based sign-in (mobile fallback).
+      // Returns null if there's nothing pending — that's fine.
+      try { await fbAuth.getRedirectResult(this._auth); } catch(e){ console.warn('getRedirectResult', e); }
       Auth._wired=true;
       // Watch auth state — survives reloads and the redirect from Google.
       // Distinguishes three transitions:
@@ -2091,7 +2094,23 @@ const Sync = {
   },
   async signInWithGoogle(){
     const provider = new this._fbAuth.GoogleAuthProvider();
-    await this._fbAuth.signInWithPopup(this._auth, provider);
+    // Force the Google account picker every time. Without this, Google's
+    // OAuth silently reuses the last-signed-in account in the browser
+    // session — so signing out of Daycraft and back in always lands on
+    // the same Google account with no way to switch.
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      await this._fbAuth.signInWithPopup(this._auth, provider);
+    } catch(e){
+      // iOS Safari (and some PWA contexts) block OAuth popups. Fall back
+      // to a full-page redirect — the result is picked up on next load
+      // by getRedirectResult inside Sync.init.
+      if(e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')){
+        await this._fbAuth.signInWithRedirect(this._auth, provider);
+        return;
+      }
+      throw e;
+    }
   },
   async signOut(){ await this._fbAuth.signOut(this._auth); },
 
