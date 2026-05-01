@@ -453,8 +453,12 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 }
 
 /* ── TOAST ── */
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:var(--bg4);border:0.5px solid var(--b2);border-radius:var(--rs);padding:9px 20px;font-size:13px;color:var(--t1);opacity:0;transition:all .3s;pointer-events:none;z-index:999;white-space:nowrap}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:var(--bg4);border:0.5px solid var(--b2);border-radius:var(--rs);padding:9px 20px;font-size:13px;color:var(--t1);opacity:0;transition:all .3s;pointer-events:none;z-index:999;white-space:nowrap;box-shadow:0 8px 28px rgba(0,0,0,.45)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.with-action{padding:7px 8px 7px 16px;display:flex;align-items:center;gap:14px;pointer-events:auto}
+.toast .toast-msg{color:var(--t1)}
+.toast .toast-action{background:transparent;border:0.5px solid var(--accent);color:var(--accent2);border-radius:var(--rx);padding:4px 12px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:background .15s;letter-spacing:.02em}
+.toast .toast-action:hover{background:rgba(201,169,110,.15)}
 
 /* scrollbar */
 ::-webkit-scrollbar{width:5px}

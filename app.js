@@ -49,7 +49,26 @@ const U = {
   addDays(k,n){ const d=new Date(k+'T12:00:00'); d.setDate(d.getDate()+n); return this.dateKey(d); },
   isWeekend(k){ const d=this.dowNum(k); return d===0||d===6; },
   esc(s){ return String(s).replace(/'/g,"&#39;").replace(/"/g,'&quot;'); },
-  toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800); },
+  toast(msg, opts){
+    const t=document.getElementById('toast');
+    if(!t) return;
+    clearTimeout(t._fadeTimer);
+    if(opts && opts.action){
+      t.classList.add('with-action');
+      t.innerHTML = `<span class="toast-msg"></span><button class="toast-action">${this.esc(opts.action)}</button>`;
+      t.querySelector('.toast-msg').textContent = msg;
+      t.querySelector('.toast-action').onclick = (e)=>{
+        e.stopPropagation();
+        try { opts.onAction && opts.onAction(); } catch(err){}
+        t.classList.remove('show');
+      };
+    } else {
+      t.classList.remove('with-action');
+      t.textContent = msg;
+    }
+    t.classList.add('show');
+    t._fadeTimer = setTimeout(()=>t.classList.remove('show'), (opts && opts.duration) || 2800);
+  },
   uid(){ return 'id_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 };
 
@@ -472,9 +491,12 @@ const TL = {
         </div>
       </div>`;
 
-    const actHTML=`
+    // Blocked entries (Sleep, Class) come from Settings → Blocked times.
+    // Editing/swapping/deleting them on a single day's schedule wouldn't stick
+    // anyway, so hide the entire action row for blocked entries.
+    const actHTML = isBlk ? '' : `
       <div class="tl-actions">
-        ${!isBlk?`<button class="tlbtn done" onclick="TL._done('${ctx}',${gi})">${isDone?'Undo':'Done'}</button>`:''}
+        <button class="tlbtn done" onclick="TL._done('${ctx}',${gi})">${isDone?'Undo':'Done'}</button>
         <button class="tlbtn swap-btn" onclick="TL._toggleSwap('${sid}')">Swap</button>
         <button class="tlbtn edit-btn" onclick="Modals.openBlock('${ctx}',${gi})">Edit</button>
       </div>${swapsHTML}`;
@@ -522,12 +544,23 @@ const TL = {
   _delete(ctx, gi){
     const sch=TL._getSchByCtx(ctx);
     if(!sch||!sch[gi]) return;
-    const item=sch[gi];
-    if(!confirm(`Remove "${item.title}" from your schedule?`)) return;
-    sch.splice(gi,1);
+    const removed = sch.splice(gi,1)[0];
+    const removedAt = gi;
     Store.save();
     TL._refresh(ctx);
-    U.toast('Activity removed.');
+    U.toast(`Removed "${removed.title}"`, {
+      action:'Undo',
+      duration:5000,
+      onAction:()=>{
+        const sch2=TL._getSchByCtx(ctx);
+        if(!sch2) return;
+        sch2.splice(Math.min(removedAt, sch2.length), 0, removed);
+        sch2.sort((a,b)=>U.t2m(a.time)-U.t2m(b.time));
+        Store.save();
+        TL._refresh(ctx);
+        U.toast('Restored.');
+      }
+    });
   },
 
   _onDrag(ctx, from, to){
@@ -991,12 +1024,22 @@ const CalPage = {
     const dk=this._selDay;
     const sch=Store.get().schedules[dk];
     if(!sch||!sch.length){ U.toast('No schedule for this day.'); return; }
-    if(!confirm(`Clear ${U.fmtDate(dk)}'s ${sch.length} activities?`)) return;
+    const backup = JSON.parse(JSON.stringify(sch));
     delete Store.get().schedules[dk];
     Store.save();
     this._renderDayDetail(dk);
     this._renderMiniCal();
-    U.toast('Day cleared.');
+    U.toast(`Cleared ${backup.length} activities`, {
+      action:'Undo',
+      duration:5000,
+      onAction:()=>{
+        Store.get().schedules[dk] = backup;
+        Store.save();
+        CalPage._renderDayDetail(dk);
+        CalPage._renderMiniCal();
+        U.toast('Restored.');
+      }
+    });
   },
 
   filter(el,f){
@@ -1169,12 +1212,22 @@ const Today = {
     const dk=U.nowKey();
     const sch=Store.get().schedules[dk];
     if(!sch||!sch.length){ U.toast('Nothing to clear.'); return; }
-    if(!confirm(`Clear today's ${sch.length} activities? You can plan again any time.`)) return;
+    const backup = JSON.parse(JSON.stringify(sch));
     delete Store.get().schedules[dk];
     Store.save();
     Today.render();
     CalPage._renderMiniCal && CalPage._renderMiniCal();
-    U.toast("Today's schedule cleared.");
+    U.toast(`Cleared ${backup.length} activities`, {
+      action:'Undo',
+      duration:5000,
+      onAction:()=>{
+        Store.get().schedules[dk] = backup;
+        Store.save();
+        Today.render();
+        CalPage._renderMiniCal && CalPage._renderMiniCal();
+        U.toast('Restored.');
+      }
+    });
   }
 };
 
