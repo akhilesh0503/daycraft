@@ -1562,9 +1562,17 @@ const Auth = {
 
 /* ─── SYNC (Firebase Auth + Firestore — bound only once config is provided) ─── */
 const Sync = {
-  _firebase:null, _auth:null, _db:null, _unsubFromSnapshot:null,
-  // Replaced with the real config in Week 3 wire-up.
-  CONFIG:null,
+  _firebase:null, _auth:null, _db:null, _unsubFromSnapshot:null, _writeTimer:null,
+  // Public client-side keys. Security comes from Firestore rules (users/{uid}
+  // is locked to request.auth.uid == uid). Safe to commit.
+  CONFIG:{
+    apiKey: "AIzaSyDuauJ8w1vfqtNnvOAaqzjJrIMHZpLX5SU",
+    authDomain: "daycraft-72848.firebaseapp.com",
+    projectId: "daycraft-72848",
+    storageBucket: "daycraft-72848.firebasestorage.app",
+    messagingSenderId: "778642472327",
+    appId: "1:778642472327:web:2e47a92f92d233fbe7e722"
+  },
   async init(){
     if(!this.CONFIG){
       Auth._wired = false;
