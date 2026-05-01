@@ -91,14 +91,21 @@ const Clock = {
 
 /* ─── NAV ─── */
 const Nav = {
+  TITLES:{today:'Today',calendar:'Calendar',habits:'Habits',setup:'Settings',generate:'Plan my day'},
   go(page){
+    const target=document.getElementById('page-'+page);
+    if(!target) return;
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-    document.getElementById('page-'+page).classList.add('active');
-    const b=document.querySelector(`.nav-btn[data-page="${page}"]`);
-    if(b) b.classList.add('active');
+    target.classList.add('active');
+    document.querySelectorAll('.side-link').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll(`.side-link[data-page="${page}"]`).forEach(b=>b.classList.add('active'));
+    const tt=document.getElementById('topbar-title');
+    if(tt) tt.textContent=this.TITLES[page]||'Daycraft';
+    document.body.classList.remove('side-open');
+    if(page==='today')    Today.render();
     if(page==='calendar') CalPage.render();
     if(page==='generate') GenPage.init();
+    if(page==='setup')    Setup.init();
   }
 };
 
@@ -515,8 +522,15 @@ const TL = {
   _refresh(ctx){
     const sch=TL._getSchByCtx(ctx);
     if(!sch) return;
-    TL.render('cal-timeline', sch, ctx);
-    CalPage._updateProgress(ctx);
+    // Calendar: re-render timeline if calendar is the active context
+    if(document.getElementById('page-calendar').classList.contains('active')){
+      TL.render('cal-timeline', sch, ctx);
+      CalPage._updateProgress(ctx);
+    }
+    // Today: re-render only if the changed day is today AND today is visible
+    if(ctx===U.nowKey() && document.getElementById('page-today').classList.contains('active')){
+      Today.render();
+    }
     GenPage._refreshResultCards();
     TL._refreshNow();
   },
@@ -660,6 +674,14 @@ const GenPage = {
     if(dateKey===U.nowKey()) Streak.bump();
     Store.save();
     this._showLoading(false);
+
+    // If user came from "Plan my day" on Today, return there with the new schedule.
+    if(this._returnToToday && dateKey===U.nowKey()){
+      this._returnToToday=false;
+      Nav.go('today');
+      U.toast('Day planned!');
+      return;
+    }
     this._showResult([dateKey]);
   },
 
@@ -974,6 +996,206 @@ const CalPage = {
   }
 };
 
+/* ─── TODAY (the daily-driver view) ─── */
+const Today = {
+  render(){
+    const dk=U.nowKey();
+    const s=Store.get();
+    const sched=s.schedules[dk];
+
+    // Header
+    const hour=parseInt(U.nowTime().split(':')[0]);
+    const greet = hour<12?'Good morning':hour<17?'Good afternoon':hour<22?'Good evening':'Late night';
+    const greetEl=document.getElementById('today-greeting');
+    if(greetEl) greetEl.textContent=greet;
+    const titleEl=document.getElementById('today-title');
+    if(titleEl) titleEl.textContent=U.dayName(dk);
+    const metaEl=document.getElementById('today-meta');
+    if(metaEl) metaEl.textContent=U.fmtDate(dk).split(', ').slice(1).join(', '); // "April 30"
+
+    const hasSched = !!(sched&&sched.length);
+
+    // Plan-my-day button label
+    const btn=document.getElementById('today-plan-btn');
+    if(btn){
+      btn.querySelector('.primary-btn-main').textContent = hasSched ? 'Regenerate day' : 'Plan my day';
+      btn.querySelector('.primary-btn-sub').textContent  = hasSched ? 'Replace today\'s schedule' : 'AI builds your schedule';
+    }
+
+    // Progress
+    const progWrap=document.getElementById('today-progress');
+    if(hasSched){
+      progWrap.style.display='flex';
+      const items=sched.filter(x=>x.type!=='blocked'&&x.type!=='break');
+      const done=items.filter(x=>x.done).length;
+      const pct=items.length?Math.round((done/items.length)*100):0;
+      document.getElementById('today-progress-fill').style.width=pct+'%';
+      document.getElementById('today-progress-lbl').textContent=`${done} / ${items.length} done`;
+    } else {
+      progWrap.style.display='none';
+    }
+
+    // NOW card (current block)
+    this._renderNowCard(sched);
+
+    // Timeline
+    const tl=document.getElementById('today-timeline');
+    const tlTitle=document.getElementById('today-tl-title');
+    if(!hasSched){
+      tl.innerHTML='';
+      tlTitle.style.display='none';
+      tl.innerHTML=`<div class="empty-state" style="margin-top:8px">No schedule yet for today.<br>Click <b>Plan my day</b> above to let Daycraft build one around your interests.</div>`;
+    } else {
+      tlTitle.style.display='block';
+      // Reuse TL.render — it scopes by ctx (dateKey) which works for both Today and Calendar
+      TL.render('today-timeline', sched, dk);
+      this._highlightNow();
+    }
+
+    // Today's reminders (right rail)
+    this._renderTodayReminders(dk);
+  },
+
+  // Make sure TL._refreshNow finds the right element when on Today
+  _highlightNow(){
+    document.querySelectorAll('#today-timeline .tl-card.is-now').forEach(c=>c.classList.remove('is-now'));
+    const dk=U.nowKey();
+    const sch=Store.get().schedules[dk]; if(!sch) return;
+    const now=U.t2m(U.nowTime());
+    let idx=-1;
+    sch.forEach((it,i)=>{
+      if(it.type==='blocked') return;
+      const a=U.t2m(it.time), b=U.t2m(it.endTime||it.time);
+      if(a<=now&&now<b) idx=i;
+    });
+    if(idx<0) return;
+    const wrap=document.querySelector(`#today-timeline .tl-block[data-gi="${idx}"]`);
+    wrap?.querySelector('.tl-card')?.classList.add('is-now');
+  },
+
+  _renderNowCard(sched){
+    const card=document.getElementById('today-now-card');
+    if(!card) return;
+    if(!sched||!sched.length){ card.style.display='none'; return; }
+    const now=U.t2m(U.nowTime());
+    const cur=sched.find(it=>{
+      if(it.type==='blocked') return false;
+      const a=U.t2m(it.time), b=U.t2m(it.endTime||it.time);
+      return a<=now&&now<b;
+    });
+    if(!cur){ card.style.display='none'; return; }
+    card.style.display='block';
+    document.getElementById('today-now-title').textContent=cur.title;
+    const left=U.t2m(cur.endTime)-now;
+    document.getElementById('today-now-meta').textContent=`${cur.time} → ${cur.endTime} · ${left} min left`;
+    document.getElementById('today-now-desc').textContent=cur.description||'';
+  },
+
+  _renderTodayReminders(dk){
+    const rems=Store.get().reminders.filter(r=>CalPage._reminderMatches(r,dk));
+    rems.sort((a,b)=>a.time.localeCompare(b.time));
+    const CLRS={teal:'var(--teal)',purple:'var(--purple)',coral:'var(--coral)',blue:'var(--blue)',pink:'var(--pink)',amber:'var(--amber)'};
+    const el=document.getElementById('today-reminders');
+    if(!el) return;
+    if(!rems.length){ el.innerHTML='<div class="no-rem">Nothing scheduled. Try <b>⌘K</b> to add one.</div>'; return; }
+    el.innerHTML=rems.map(r=>`
+      <div class="rem-item">
+        <div class="rem-bar" style="background:${CLRS[r.color]||'var(--amber)'}"></div>
+        <div class="rem-body">
+          <div class="rem-top"><span class="rem-title">${r.title}</span><span class="rbadge rbadge-${r.priority}">${r.priority}</span></div>
+          <div class="rem-meta">${r.time}</div>
+          ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
+        </div>
+        <button class="iconbtn del" onclick="CalPage._delRem('${r.id}');Today.render()">×</button>
+      </div>`).join('');
+  },
+
+  // Triggered by the big "Plan my day" / "Regenerate day" button.
+  // Sets a flag so generateDay() returns to Today after completion.
+  planDay(){
+    GenPage._returnToToday=true;
+    Nav.go('generate');
+  }
+};
+
+/* ─── ONBOARD (3-step first-run) ─── */
+const Onboard = {
+  _step:1, _mood:'', _interests:new Set(),
+  open(){
+    this._step=1; this._mood=''; this._interests.clear();
+    document.querySelectorAll('#ob-mood .mood-chip').forEach(c=>c.classList.remove('sel'));
+    document.querySelectorAll('.ob-presets .preset').forEach(p=>p.classList.remove('sel'));
+    document.getElementById('ob-tags').innerHTML='';
+    document.getElementById('ob-energy').value=6;
+    document.getElementById('ob-energy-val').textContent='6/10';
+    document.getElementById('ob-apikey').value='';
+    this._renderStep();
+    document.getElementById('ob-overlay').classList.add('open');
+  },
+  close(){ document.getElementById('ob-overlay').classList.remove('open'); },
+  mood(el){
+    document.querySelectorAll('#ob-mood .mood-chip').forEach(c=>c.classList.remove('sel'));
+    el.classList.add('sel');
+    this._mood=el.dataset.mood;
+  },
+  toggleInterest(el){
+    const v=el.dataset.i;
+    if(this._interests.has(v)){ this._interests.delete(v); el.classList.remove('sel'); }
+    else { this._interests.add(v); el.classList.add('sel'); }
+    this._renderTags();
+  },
+  addCustomInterest(){
+    const i=document.getElementById('ob-interest-inp');
+    const v=i.value.trim(); if(!v) return;
+    const cap=v[0].toUpperCase()+v.slice(1);
+    this._interests.add(cap);
+    i.value='';
+    this._renderTags();
+  },
+  _renderTags(){
+    const tags=[...this._interests];
+    document.getElementById('ob-tags').innerHTML =
+      tags.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="Onboard._removeInterest('${U.esc(t)}')">×</span></div>`).join('');
+  },
+  _removeInterest(v){
+    this._interests.delete(v);
+    document.querySelectorAll('.ob-presets .preset').forEach(p=>{ if(p.dataset.i===v) p.classList.remove('sel'); });
+    this._renderTags();
+  },
+  next(){
+    if(this._step===2 && this._interests.size===0){ U.toast('Pick at least one interest.'); return; }
+    if(this._step<3){ this._step++; this._renderStep(); return; }
+    this._finish();
+  },
+  back(){ if(this._step>1){ this._step--; this._renderStep(); } },
+  skip(){ this._finish(true); },
+  _renderStep(){
+    document.querySelectorAll('.ob-step').forEach(s=>s.classList.toggle('active',parseInt(s.dataset.step)===this._step));
+    document.querySelectorAll('.ob-dot').forEach(d=>d.classList.toggle('active',parseInt(d.dataset.s)<=this._step));
+    document.getElementById('ob-back').style.display=this._step>1?'inline-block':'none';
+    document.getElementById('ob-next').textContent=this._step===3?'Finish':'Next →';
+  },
+  _finish(skipped){
+    const s=Store.get();
+    if(!skipped){
+      if(this._mood) s.mood=this._mood;
+      const energy=parseInt(document.getElementById('ob-energy').value);
+      if(energy) s.energy=energy;
+      [...this._interests].forEach(v=>{ if(!s.interests.includes(v)) s.interests.push(v); });
+      const key=document.getElementById('ob-apikey').value.trim();
+      if(key) s.apiKey=key;
+    }
+    // Even on skip we want to leave Setup-page; seed a minimal interest so the
+    // Today view doesn't loop back into onboarding next reload.
+    if(!s.interests.length) s.interests.push('Reading','Walking');
+    Store.save();
+    this.close();
+    Setup.init();
+    Nav.go('today');
+    U.toast(skipped?'Set up later in Settings.':'Welcome to Daycraft!');
+  }
+};
+
 /* ─── MODALS ─── */
 const Modals = {
   _blockCtx:null, _blockGi:null,
@@ -1274,17 +1496,23 @@ document.addEventListener('DOMContentLoaded',()=>{
   Notify.init();
   QuickAdd.init();
 
-  // First run = no interests yet → Setup. Otherwise land on today.
+  // First run → onboarding modal + land on Today.
+  // Returning users → straight to Today.
+  Nav.go('today');
   if(!Store.get().interests.length){
-    Nav.go('setup');
-  } else {
-    Nav.go('calendar');
-    CalPage.selectDay(U.nowKey());
+    Onboard.open();
   }
 
-  // Live "now" tick + reminder firing
-  TL._refreshNow();
-  setInterval(()=>TL._refreshNow(), 30000);
-  Notify.tick();
-  setInterval(()=>Notify.tick(), 30000);
+  // Live ticks: NOW indicator (Today + Calendar) + reminder firing
+  const tick=()=>{
+    TL._refreshNow();
+    if(document.getElementById('page-today').classList.contains('active')){
+      const sched=Store.get().schedules[U.nowKey()];
+      Today._renderNowCard(sched);
+      Today._highlightNow();
+    }
+    Notify.tick();
+  };
+  tick();
+  setInterval(tick, 30000);
 });
