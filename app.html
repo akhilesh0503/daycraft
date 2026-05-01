@@ -363,29 +363,38 @@
         <h3 class="gen-section-title">End time</h3>
         <input type="time" id="day-end-pick" class="timeinput" value="23:00">
       </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">Override mood & energy <span class="badge-opt">Optional</span></h3>
-        <div class="override-row">
-          <select class="tinput sel" id="day-mood">
-            <option value="">Use default mood</option>
-            <option>Energised</option><option>Focused</option><option>Relaxed</option>
-            <option>Creative</option><option>Tired</option><option>Anxious</option>
-          </select>
-          <div class="energy-mini">
-            <span class="elbl">Energy</span>
-            <input type="range" min="1" max="10" value="6" id="day-energy" step="1" oninput="document.getElementById('day-energy-val').textContent=this.value">
-            <span id="day-energy-val" class="energy-val">6</span>
+      <details class="gen-advanced" id="day-advanced">
+        <summary>Advanced <span class="adv-hint">— mood, energy, extra tasks, AI notes</span></summary>
+        <div class="gen-advanced-body">
+          <div class="gen-section">
+            <h3 class="gen-section-title">Override mood & energy</h3>
+            <div class="override-row">
+              <select class="tinput sel" id="day-mood">
+                <option value="">Use default mood</option>
+                <option>Energised</option><option>Focused</option><option>Relaxed</option>
+                <option>Creative</option><option>Tired</option><option>Anxious</option>
+              </select>
+              <div class="energy-mini">
+                <span class="elbl">Energy</span>
+                <input type="range" min="1" max="10" id="day-energy" step="1" oninput="document.getElementById('day-energy-val').textContent=this.value">
+                <span id="day-energy-val" class="energy-val">6</span>
+              </div>
+            </div>
+          </div>
+          <div class="gen-section">
+            <h3 class="gen-section-title">Extra tasks for this day</h3>
+            <div class="irow">
+              <input type="text" id="day-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addDayTask()">
+              <button class="addbtn" onclick="GenPage.addDayTask()">Add</button>
+            </div>
+            <div class="tags" id="day-task-tags"></div>
+          </div>
+          <div class="gen-section">
+            <h3 class="gen-section-title">Anything else for the AI?</h3>
+            <textarea id="day-notes" class="tinput full tarea" placeholder='e.g. "More focus on coding" · "Lighter day, I&#39;m tired" · "Interview at 3pm — keep me sharp"'></textarea>
           </div>
         </div>
-      </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">Extra tasks for this day <span class="badge-opt">Optional</span></h3>
-        <div class="irow">
-          <input type="text" id="day-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addDayTask()">
-          <button class="addbtn" onclick="GenPage.addDayTask()">Add</button>
-        </div>
-        <div class="tags" id="day-task-tags"></div>
-      </div>
+      </details>
       <button class="gen-cta" id="gen-day-btn" onclick="GenPage.generateDay()">
         <span class="gen-cta-main">Generate Day Schedule</span>
         <span class="gen-cta-sub">AI builds your day around your interests</span>
@@ -404,8 +413,15 @@
       </div>
       <div class="gen-section">
         <h3 class="gen-section-title">How many days? <span class="badge-val" id="week-days-val">7 days</span></h3>
-        <input type="range" min="1" max="7" value="7" id="week-days-slider" step="1" class="full-range" oninput="GenPage.weekDaysChange(this.value)">
-        <div class="range-labels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span></div>
+        <div class="day-count-row" id="day-count-row">
+          <button class="day-count-btn" data-d="1" onclick="GenPage.weekDaysChange(1)">1</button>
+          <button class="day-count-btn" data-d="2" onclick="GenPage.weekDaysChange(2)">2</button>
+          <button class="day-count-btn" data-d="3" onclick="GenPage.weekDaysChange(3)">3</button>
+          <button class="day-count-btn" data-d="4" onclick="GenPage.weekDaysChange(4)">4</button>
+          <button class="day-count-btn" data-d="5" onclick="GenPage.weekDaysChange(5)">5</button>
+          <button class="day-count-btn" data-d="6" onclick="GenPage.weekDaysChange(6)">6</button>
+          <button class="day-count-btn active" data-d="7" onclick="GenPage.weekDaysChange(7)">7</button>
+        </div>
       </div>
       <div class="gen-section">
         <h3 class="gen-section-title">Daily start time</h3>
@@ -415,29 +431,38 @@
         <h3 class="gen-section-title">Daily end time</h3>
         <input type="time" id="week-end-time" class="timeinput" value="22:30">
       </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">Override mood & energy <span class="badge-opt">Optional</span></h3>
-        <div class="override-row">
-          <select class="tinput sel" id="week-mood">
-            <option value="">Use default mood</option>
-            <option>Energised</option><option>Focused</option><option>Relaxed</option>
-            <option>Creative</option><option>Tired</option><option>Anxious</option>
-          </select>
-          <div class="energy-mini">
-            <span class="elbl">Energy</span>
-            <input type="range" min="1" max="10" value="6" id="week-energy" step="1" oninput="document.getElementById('week-energy-val').textContent=this.value">
-            <span id="week-energy-val" class="energy-val">6</span>
+      <details class="gen-advanced" id="week-advanced">
+        <summary>Advanced <span class="adv-hint">— mood, energy, extra tasks, AI notes</span></summary>
+        <div class="gen-advanced-body">
+          <div class="gen-section">
+            <h3 class="gen-section-title">Override mood & energy</h3>
+            <div class="override-row">
+              <select class="tinput sel" id="week-mood">
+                <option value="">Use default mood</option>
+                <option>Energised</option><option>Focused</option><option>Relaxed</option>
+                <option>Creative</option><option>Tired</option><option>Anxious</option>
+              </select>
+              <div class="energy-mini">
+                <span class="elbl">Energy</span>
+                <input type="range" min="1" max="10" id="week-energy" step="1" oninput="document.getElementById('week-energy-val').textContent=this.value">
+                <span id="week-energy-val" class="energy-val">6</span>
+              </div>
+            </div>
+          </div>
+          <div class="gen-section">
+            <h3 class="gen-section-title">Extra tasks for this week</h3>
+            <div class="irow">
+              <input type="text" id="week-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addWeekTask()">
+              <button class="addbtn" onclick="GenPage.addWeekTask()">Add</button>
+            </div>
+            <div class="tags" id="week-task-tags"></div>
+          </div>
+          <div class="gen-section">
+            <h3 class="gen-section-title">Anything else for the AI?</h3>
+            <textarea id="week-notes" class="tinput full tarea" placeholder='e.g. "Heavy interview prep this week" · "Travel Wed-Thu, lighter days"'></textarea>
           </div>
         </div>
-      </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">Extra tasks for this week <span class="badge-opt">Optional</span></h3>
-        <div class="irow">
-          <input type="text" id="week-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addWeekTask()">
-          <button class="addbtn" onclick="GenPage.addWeekTask()">Add</button>
-        </div>
-        <div class="tags" id="week-task-tags"></div>
-      </div>
+      </details>
       <button class="gen-cta week-cta" id="gen-week-btn" onclick="GenPage.generateWeek()">
         <span class="gen-cta-main">Generate Week Schedule</span>
         <span class="gen-cta-sub" id="week-cta-sub">Generating 7 days from today</span>

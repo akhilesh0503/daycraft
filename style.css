@@ -238,6 +238,43 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .date-opt:hover{border-color:var(--b3);color:var(--t1)}
 .date-opt.active{background:var(--bg4);border-color:var(--accent);color:var(--accent2)}
 .range-labels{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:var(--t3)}
+
+/* day-count number buttons (replaces the slider) */
+.day-count-row{display:flex;gap:8px;flex-wrap:wrap}
+.day-count-btn{
+  flex:1;min-width:42px;
+  background:var(--bg2);border:0.5px solid var(--b2);
+  border-radius:var(--rs);padding:11px 0;
+  color:var(--t2);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;
+  cursor:pointer;transition:all .15s;
+}
+.day-count-btn:hover{border-color:var(--b3);color:var(--t1);transform:translateY(-1px)}
+.day-count-btn.active{background:var(--bg4);border-color:var(--accent);color:var(--accent2)}
+
+/* Advanced collapsible (mood/energy/extra tasks/AI notes) */
+.gen-advanced{
+  margin-bottom:24px;
+  background:var(--bg2);border:0.5px solid var(--b1);
+  border-radius:var(--r);
+  transition:border-color .2s;
+}
+.gen-advanced[open]{border-color:var(--b2)}
+.gen-advanced > summary{
+  list-style:none;cursor:pointer;
+  padding:14px 18px;
+  font-size:13.5px;font-weight:500;color:var(--t2);
+  display:flex;align-items:center;gap:8px;
+  transition:color .15s;
+}
+.gen-advanced > summary::-webkit-details-marker{display:none}
+.gen-advanced > summary::before{
+  content:'▸';color:var(--t3);transition:transform .2s;display:inline-block;font-size:11px;
+}
+.gen-advanced[open] > summary::before{transform:rotate(90deg)}
+.gen-advanced > summary:hover{color:var(--t1)}
+.gen-advanced .adv-hint{color:var(--t3);font-weight:400;font-size:12px}
+.gen-advanced-body{padding:6px 18px 18px;border-top:0.5px solid var(--b1)}
+.gen-advanced-body .gen-section:last-child{margin-bottom:4px}
 .override-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .energy-mini{display:flex;align-items:center;gap:8px}
 .energy-mini input[type=range]{width:90px;-webkit-appearance:none;appearance:none;height:3px;background:var(--bg4);border-radius:2px;outline:none;cursor:pointer}

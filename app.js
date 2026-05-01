@@ -376,9 +376,10 @@ const AI = {
     }
     return final.length?final:null;
   },
-  prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend){
+  prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend,userNote){
     const bl=blocked.length?blocked.map(b=>`"${b.label}" ${b.start}–${b.end}`).join(', '):'none';
     const rl=recurring.length?recurring.map(r=>`"${r.label}" ${r.start}–${r.end}`).join(', '):'none';
+    const note=(userNote||'').trim();
     return `Generate a daily schedule for ${dayLabel} from ${startTime} to ${endTime}.
 
 Mood: ${mood||'neutral'} | Energy: ${energy}/10
@@ -387,6 +388,7 @@ Must-do tasks: ${tasks.join(', ')||'none'}
 Blocked: ${bl}
 Recurring (place at exact times): ${rl}
 Weekend: ${isWeekend}
+${note?`User's note for you: ${note}`:''}
 
 Rules:
 1. Only schedule from ${startTime} to ${endTime}
@@ -654,6 +656,33 @@ const GenPage = {
     const today=U.nowKey();
     document.getElementById('day-date-pick').value=today;
     document.getElementById('week-start-pick').value=today;
+
+    // Pull defaults from Settings — fixes the "energy always 6" bug.
+    // The energy slider is a range input which can't be empty, so we MUST
+    // populate it from Store on every visit; otherwise the user's actual
+    // Settings energy never reaches the AI.
+    const s = Store.get();
+    const energy = s.energy || 6;
+    ['day-energy','week-energy'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value = energy;
+    });
+    ['day-energy-val','week-energy-val'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.textContent = energy;
+    });
+    // Mood select: leave on "Use default mood" — Store.mood is the fallback
+    // in generateDay/generateWeek anyway.
+
+    // Reset transient inputs (textareas + extra tasks tag rows) per visit
+    ['day-notes','week-notes'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value='';
+    });
+    this._dayTasks=[]; this._weekTasks=[];
+    const dt=document.getElementById('day-task-tags');  if(dt) dt.innerHTML='';
+    const wt=document.getElementById('week-task-tags'); if(wt) wt.innerHTML='';
+
     this._updateWeekCta();
   },
 
@@ -683,14 +712,21 @@ const GenPage = {
     this._updateWeekCta();
   },
 
+  _weekDays:7,
   weekDaysChange(v){
-    document.getElementById('week-days-val').textContent=v+' day'+(v>1?'s':'');
+    const n = parseInt(v) || 7;
+    this._weekDays = n;
+    document.getElementById('week-days-val').textContent = n+' day'+(n>1?'s':'');
+    document.querySelectorAll('.day-count-btn').forEach(b=>{
+      b.classList.toggle('active', parseInt(b.dataset.d) === n);
+    });
     this._updateWeekCta();
   },
 
   _updateWeekCta(){
-    const days=parseInt(document.getElementById('week-days-slider')?.value||7);
-    document.getElementById('week-cta-sub').textContent=`Generating ${days} day${days>1?'s':''} of schedules`;
+    const days = this._weekDays || 7;
+    const sub = document.getElementById('week-cta-sub');
+    if(sub) sub.textContent = `Generating ${days} day${days>1?'s':''} of schedules`;
   },
 
   addDayTask(){
@@ -744,8 +780,9 @@ const GenPage = {
     }
     const endTime=document.getElementById('day-end-pick').value||'23:00';
     const mood=document.getElementById('day-mood').value||s.mood;
-    const energy=parseInt(document.getElementById('day-energy').value)||s.energy;
+    const energy=parseInt(document.getElementById('day-energy').value)||s.energy||6;
     const tasks=[...s.tasks,...this._dayTasks];
+    const userNote=(document.getElementById('day-notes')?.value||'').trim();
     const dow=U.dowNum(dateKey);
     const rec=s.recurring.filter(r=>r.days.includes(dow));
     const isWkd=U.isWeekend(dateKey);
@@ -753,7 +790,7 @@ const GenPage = {
     this._showLoading(true, 'Generating your day...', 'Building schedule around your interests');
 
     try{
-      const prompt=AI.prompt(U.dayName(dateKey),startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,isWkd);
+      const prompt=AI.prompt(U.dayName(dateKey),startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote);
       const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
       s.schedules[dateKey]=sched.map(x=>({...x,done:false}));
     } catch(e){
@@ -783,12 +820,13 @@ const GenPage = {
     const startKey=usePick ? document.getElementById('week-start-pick').value : U.nowKey();
     if(!startKey){ U.toast('Pick a start date.'); return; }
 
-    const days=parseInt(document.getElementById('week-days-slider').value)||7;
+    const days = this._weekDays || 7;
     const startTime=document.getElementById('week-start-time').value||'07:00';
     const endTime=document.getElementById('week-end-time').value||'22:30';
     const mood=document.getElementById('week-mood').value||s.mood;
-    const energy=parseInt(document.getElementById('week-energy').value)||s.energy;
+    const energy=parseInt(document.getElementById('week-energy').value)||s.energy||6;
     const tasks=[...s.tasks,...this._weekTasks];
+    const userNote=(document.getElementById('week-notes')?.value||'').trim();
 
     const dateKeys=Array.from({length:days},(_,i)=>U.addDays(startKey,i));
 
@@ -802,7 +840,7 @@ const GenPage = {
       const isWkd=U.isWeekend(dk);
       const dayMood=s.dayMoods[dk]||mood;
       try{
-        const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd);
+        const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote);
         const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
         s.schedules[dk]=sched.map(x=>({...x,done:false}));
       } catch(e){
