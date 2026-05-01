@@ -1493,6 +1493,171 @@ const QuickAdd = {
   }
 };
 
+/* ─── AUTH (Firebase wired in once config is added — see Sync.init) ─── */
+const Auth = {
+  _user:null,                  // null = guest; { uid, name, email, photoURL } when signed in
+  _wired:false,                // becomes true once Sync.init successfully boots Firebase
+  openSignIn(){
+    if(this._user){           // already signed in → offer sign-out
+      if(confirm(`Signed in as ${this._user.name||this._user.email}. Sign out?`)) this.signOut();
+      return;
+    }
+    document.getElementById('signin-overlay').classList.add('open');
+    this._renderFineprint();
+  },
+  closeSignIn(e){
+    if(e&&e.target!==document.getElementById('signin-overlay')) return;
+    document.getElementById('signin-overlay').classList.remove('open');
+  },
+  async signInWithGoogle(){
+    if(!this._wired){
+      U.toast('Sign-in is being set up — Firebase config arrives in Week 3 wire-up.');
+      return;
+    }
+    try{
+      await Sync.signInWithGoogle();
+      this.closeSignIn();
+    }catch(e){
+      U.toast('Sign in failed — '+(e.message||'unknown error'));
+    }
+  },
+  async signOut(){
+    if(!this._wired) return;
+    try{
+      await Sync.signOut();
+      U.toast('Signed out. Daycraft is now in guest mode.');
+    }catch(e){ U.toast('Sign out failed.'); }
+  },
+  _onUserChange(user){
+    this._user = user;
+    this._renderProfileChip();
+  },
+  _renderProfileChip(){
+    const av=document.getElementById('side-avatar');
+    const nm=document.getElementById('side-profile-name');
+    const mt=document.getElementById('side-profile-meta');
+    const btn=document.getElementById('side-profile-btn');
+    if(!av) return;
+    if(this._user){
+      const initial=(this._user.name||this._user.email||'?')[0].toUpperCase();
+      av.textContent=initial;
+      nm.textContent=this._user.name||this._user.email.split('@')[0];
+      mt.textContent='Synced';
+      btn.title=`Signed in as ${this._user.email}. Click to sign out.`;
+    } else {
+      av.textContent='G';
+      nm.textContent='Guest';
+      mt.textContent= this._wired ? 'Sign in to sync' : 'Local only';
+      btn.title='Sign in to sync across devices';
+    }
+  },
+  _renderFineprint(){
+    const fp=document.getElementById('signin-fineprint');
+    if(!fp) return;
+    fp.innerHTML = this._wired
+      ? 'Your data stays yours — Daycraft stores it under your account in a private database. Skip and keep using Daycraft as a guest on this device.'
+      : '<b>Sign-in is being set up.</b> The Firebase config arrives in the next deploy. For now, Daycraft works fully in guest mode — everything is saved on this device.';
+  }
+};
+
+/* ─── SYNC (Firebase Auth + Firestore — bound only once config is provided) ─── */
+const Sync = {
+  _firebase:null, _auth:null, _db:null, _unsubFromSnapshot:null,
+  // Replaced with the real config in Week 3 wire-up.
+  CONFIG:null,
+  async init(){
+    if(!this.CONFIG){
+      Auth._wired = false;
+      Auth._renderProfileChip();
+      return;
+    }
+    try{
+      // Lazy-load the modular Firebase SDK from the CDN. No build step needed.
+      const fbApp  = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js');
+      const fbAuth = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js');
+      const fbStore= await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');
+      const app = fbApp.initializeApp(this.CONFIG);
+      this._auth = fbAuth.getAuth(app);
+      this._db   = fbStore.getFirestore(app);
+      this._fbAuth=fbAuth; this._fbStore=fbStore;
+      Auth._wired=true;
+      // Watch auth state — survives reloads and the redirect from Google.
+      fbAuth.onAuthStateChanged(this._auth, async user=>{
+        if(user){
+          Auth._onUserChange({ uid:user.uid, name:user.displayName, email:user.email, photoURL:user.photoURL });
+          await this._pullThenSubscribe(user.uid);
+        } else {
+          Auth._onUserChange(null);
+          if(this._unsubFromSnapshot) this._unsubFromSnapshot();
+        }
+      });
+      // If user came from landing's "Sign in" CTA, surface the modal.
+      if(sessionStorage.getItem('dc_signin_intent')){
+        sessionStorage.removeItem('dc_signin_intent');
+        Auth.openSignIn();
+      }
+    } catch(e){
+      console.error('Sync init failed', e);
+      Auth._wired=false;
+      Auth._renderProfileChip();
+    }
+  },
+  async signInWithGoogle(){
+    const provider = new this._fbAuth.GoogleAuthProvider();
+    await this._fbAuth.signInWithPopup(this._auth, provider);
+  },
+  async signOut(){ await this._fbAuth.signOut(this._auth); },
+
+  // Pull the user's stored doc, merge it into Store, then subscribe to
+  // future Firestore changes for cross-device live updates. Last-write-wins.
+  async _pullThenSubscribe(uid){
+    const ref = this._fbStore.doc(this._db, `users/${uid}`);
+    try{
+      const snap = await this._fbStore.getDoc(ref);
+      if(snap.exists()){
+        const cloud = snap.data();
+        // Cloud wins for arrays of records; local wins for empty fields.
+        const local = Store.get();
+        const merged = { ...local, ...cloud };
+        Object.assign(local, merged);
+        Store.save();
+      } else {
+        // First-ever sign-in for this user → seed Firestore from local data.
+        await this._fbStore.setDoc(ref, this._cleanForFirestore(Store.get()));
+      }
+      // Live subscribe
+      this._unsubFromSnapshot = this._fbStore.onSnapshot(ref, snap=>{
+        if(!snap.exists()) return;
+        const cloud=snap.data();
+        Object.assign(Store.get(), cloud);
+        // Re-render whatever page is visible
+        if(document.getElementById('page-today').classList.contains('active')) Today.render();
+        if(document.getElementById('page-calendar').classList.contains('active')) CalPage.render();
+        Streak.render();
+      });
+      // Patch Store.save to also push to Firestore. We wrap once.
+      if(!Store._wrappedForSync){
+        const origSave = Store.save;
+        Store.save = (...args)=>{
+          origSave.apply(Store,args);
+          if(Auth._user) {
+            // Debounce a write
+            clearTimeout(Sync._writeTimer);
+            Sync._writeTimer = setTimeout(()=>{
+              this._fbStore.setDoc(ref, Sync._cleanForFirestore(Store.get())).catch(()=>{});
+            }, 600);
+          }
+        };
+        Store._wrappedForSync = true;
+      }
+    } catch(e){ console.error('pullThenSubscribe', e); }
+  },
+  // Firestore can't store undefined. Strip them.
+  _cleanForFirestore(obj){
+    return JSON.parse(JSON.stringify(obj));
+  }
+};
+
 /* ─── BOOT ─── */
 document.addEventListener('DOMContentLoaded',()=>{
   Store.load();
@@ -1501,6 +1666,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   Streak.render();
   Notify.init();
   QuickAdd.init();
+  Auth._renderProfileChip();
+  Sync.init(); // no-op until CONFIG is set
 
   // First run → onboarding modal + land on Today.
   // Returning users → straight to Today.
