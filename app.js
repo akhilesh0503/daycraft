@@ -316,7 +316,7 @@ const AI = {
   async call(prompt, ctx){
     const apiKey=Store.get().apiKey;
     if(!apiKey) throw new Error('No API key');
-    const doFetch = () => fetch('https://api.groq.com/openai/v1/chat/completions',{
+    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
       body:JSON.stringify({
@@ -327,33 +327,10 @@ const AI = {
         ]
       })
     });
-
-    // Up to 4 attempts with progressive backoff on 429 (rate limit) and 5xx.
-    // Groq's free tier has a tight tokens-per-minute budget; for week
-    // generation we hit it around day 3. The Retry-After header tells us
-    // exactly how long to wait — respect it, but cap each wait at 15s.
-    const MAX_TRIES = 4;
-    let res, lastErr;
-    for(let attempt = 1; attempt <= MAX_TRIES; attempt++){
-      res = await doFetch();
-      if(res.ok) break;
-      const isRetryable = res.status === 429 || (res.status >= 500 && res.status < 600);
-      if(!isRetryable || attempt === MAX_TRIES){
-        const e = await res.json().catch(()=>({}));
-        lastErr = e?.error?.message || `Groq ${res.status}`;
-        break;
-      }
-      // Wait — respect server's Retry-After if present, else backoff
-      const headerRA = parseFloat(res.headers.get('retry-after') || '0');
-      const backoff = Math.min(15000, Math.max(headerRA * 1000, attempt * 2000));
-      const sub = document.getElementById('gen-loading-sub');
-      const prev = sub?.textContent;
-      if(sub) sub.textContent = `Rate-limited — waiting ${Math.ceil(backoff/1000)}s (try ${attempt}/${MAX_TRIES-1})...`;
-      await new Promise(r => setTimeout(r, backoff));
-      if(sub && prev) sub.textContent = prev;
+    if(!res.ok){
+      const e = await res.json().catch(()=>({}));
+      throw new Error(e?.error?.message || `Groq ${res.status}`);
     }
-
-    if(!res || !res.ok) throw new Error(lastErr || 'Groq request failed');
     const data=await res.json();
     const raw=data.choices[0].message.content;
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
@@ -980,11 +957,17 @@ const GenPage = {
       const merged = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, events);
       s.schedules[dateKey] = merged;
     } catch(e){
-      // Fallback is now gap-aware — it places interest/task blocks only in
-      // the FREE GAPS between blocked + recurring + pinned events, so we
-      // don't end up with everything Reconcile-dropped.
+      // Fallback is gap-aware — it places interest/task blocks only in the
+      // FREE GAPS between blocked + recurring + pinned events.
       s.schedules[dateKey] = Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,events);
-      U.toast(e.message?.includes('API key')?'Using smart fallback (add Groq key for AI generation).':'AI failed — using smart fallback.');
+      // Friendlier than "AI failed". Includes the cause so the user can
+      // tell whether to add a key vs wait a minute for the rate limit.
+      const why = e.message?.includes('API key')
+        ? 'Add a free Groq key in Settings for AI mode.'
+        : e.message?.toLowerCase().includes('rate')
+          ? 'Groq is rate-limited right now — used a quick local plan instead.'
+          : 'Used a quick local plan.';
+      U.toast(`Day planned · ${why}`);
     }
 
     if(dateKey===U.nowKey()) Streak.bump();
