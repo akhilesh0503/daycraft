@@ -1754,6 +1754,10 @@ const Notify = {
   },
   tick(){
     if(!this.supported()||Notification.permission!=='granted') return;
+    // When signed in, the Cloudflare Worker fires reminders via FCM. This
+    // local poll would just produce a second notification for the same
+    // reminder. Guests have no Worker → keep polling for them.
+    if(typeof Auth !== 'undefined' && Auth._user) return;
     const todayK=U.nowKey();
     const nowMin=U.t2m(U.nowTime());
     const s=Store.get();
