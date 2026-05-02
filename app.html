@@ -393,6 +393,24 @@
         <h3 class="gen-section-title">End time</h3>
         <input type="time" id="day-end-pick" class="timeinput" value="23:00">
       </div>
+      <div class="gen-section">
+        <h3 class="gen-section-title">Time-sensitive events <span class="badge-opt">Optional</span></h3>
+        <p class="gen-section-hint">Lock specific events to specific times. The system places these exactly where you say — the AI plans the rest of the day around them.</p>
+        <div class="ts-row">
+          <input type="text" id="ts-title" class="tinput" placeholder="Task (e.g. Interview, Movies)" onkeydown="if(event.key==='Enter')GenPage.addTimeEvent()">
+          <input type="time" id="ts-time" class="timeinput">
+          <select id="ts-duration" class="tinput sel" title="Duration">
+            <option value="30">30 min</option>
+            <option value="60" selected>1 hr</option>
+            <option value="90">1.5 hr</option>
+            <option value="120">2 hr</option>
+            <option value="180">3 hr</option>
+          </select>
+          <button class="addbtn" onclick="GenPage.addTimeEvent()">Add</button>
+        </div>
+        <div class="ts-list" id="ts-list"></div>
+      </div>
+
       <details class="gen-advanced" id="day-advanced">
         <summary>Advanced <span class="adv-hint">— mood, energy, extra tasks, AI notes</span></summary>
         <div class="gen-advanced-body">

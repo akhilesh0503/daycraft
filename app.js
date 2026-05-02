@@ -345,6 +345,11 @@ const AI = {
     // unhelpful as a label. Map color → human category so the badge reads
     // "focus" instead of "blue".
     const COLOR_TO_CAT={teal:'wellness',purple:'hobby',blue:'focus',coral:'task',pink:'social',amber:'meal',gray:'break'};
+    // Generic filler titles the model leans on when it has nothing to say.
+    // Reject these so empty stretches stay empty instead of becoming
+    // "Free time 750 min" type garbage.
+    const FILLER = /^\s*(free|personal|open|spare|empty|leisure|chill|relax|downtime)\s+(time|block|hour|hours)\s*$/i;
+    const MAX_BLOCK_MIN = 150;
     const sm = ctx?.startTime ? U.t2m(ctx.startTime) : 0;
     const em = ctx?.endTime   ? U.t2m(ctx.endTime)   : 1440;
     const blocked = ctx?.blocked || [];
@@ -364,6 +369,11 @@ const AI = {
       if(isNaN(a)||isNaN(b)||a>=b) continue;
       if(a<sm||b>em) continue;
       if(hitsBlocked(it.time,it.endTime)) continue;
+      // Drop generic filler ("Free time 750 min" type garbage)
+      if(FILLER.test(String(it.title))) continue;
+      // Cap absurdly long blocks — the model occasionally tries to fill
+      // an entire afternoon with one block. Drop instead of squashing.
+      if(b - a > MAX_BLOCK_MIN) continue;
       // If the model dropped a color name into category, swap it for the
       // proper human label — never show "blue" / "gray" / "teal" as a tag.
       let category = hasStr(it.category) ? String(it.category).toLowerCase().slice(0,40) : 'general';
@@ -390,103 +400,48 @@ const AI = {
     }
     return final.length?final:null;
   },
-  prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend,userNote){
-    const bl = blocked.length
-      ? blocked.map(b=>`"${b.label}" ${b.start}–${b.end}`).join(', ')
-      : 'none';
-    const rl = recurring.length
-      ? recurring.map(r=>`"${r.label}" ${r.start}–${r.end}`).join(', ')
-      : 'none';
-    const energyAdvice = energy<=3
-      ? 'low — tilt toward rest, gentle movement, no marathon focus blocks. Build in real recovery time.'
-      : energy>=7
-        ? 'high — stack the hardest, most demanding work first while the brain is fresh.'
-        : 'mid-range — balance focused work with movement and shorter breaks.';
-    const moodAdvice = (() => {
-      switch((mood||'').toLowerCase()){
-        case 'tired':    return 'They\'re tired — favour shorter blocks (30–45 min), gentler transitions, no surprise intensity.';
-        case 'anxious':  return 'They\'re anxious — short, structured, predictable blocks; no sprawling open-ended slots.';
-        case 'creative': return 'They\'re feeling creative — front-load creative interests when their attention is freshest.';
-        case 'focused':  return 'They\'re focused — give them long uninterrupted deep-work blocks for the hardest task.';
-        case 'energised':return 'They\'re energised — feel free to be ambitious; pair physical activity with cognitive work.';
-        case 'relaxed':  return 'They\'re relaxed — keep the pace gentle; lean toward hobbies over performance.';
-        default:         return 'No specific mood given — assume a steady, balanced day.';
-      }
-    })();
+  prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend,userNote,events){
+    const fmtRange = arr => arr.length ? arr.map(x=>`"${x.title||x.label}" ${x.time||x.start}${x.durationMin?` (${x.durationMin}min)`:''}${x.end?`–${x.end}`:''}`).join(', ') : 'none';
+    const bl = blocked.length ? blocked.map(b=>`"${b.label}" ${b.start}–${b.end}`).join(', ') : 'none';
+    const rl = recurring.length ? recurring.map(r=>`"${r.label}" ${r.start}–${r.end}`).join(', ') : 'none';
+    const el = (events||[]).length ? (events||[]).map(e=>`"${e.title}" ${e.time} (${e.durationMin||60}min)`).join(', ') : 'none';
     const note = (userNote||'').trim();
 
-    return `You're designing a real day for a real person. Not a generic schedule.
+    return `Plan ${dayLabel} (${isWeekend ? 'weekend' : 'weekday'}) for one person, between ${startTime} and ${endTime}.
 
-THE PERSON
-- Today: ${dayLabel} (${isWeekend ? 'weekend' : 'weekday'})
-- Mood: ${mood || 'unspecified'}. ${moodAdvice}
-- Energy: ${energy}/10 — ${energyAdvice}
-- Interests (priority order): ${interests.join(', ') || 'none provided'}
+ABOUT THEM
+- Mood: ${mood || 'unspecified'}, energy ${energy}/10
+- Interests (priority order): ${interests.join(', ') || 'none'}
 - Must-do tasks: ${tasks.length ? tasks.join(', ') : 'none'}
-- Their note to you: ${note || '(none)'}
+- Their note: ${note || '(none)'}
 
-ACTIVE WINDOW: ${startTime}–${endTime}.
+THE SYSTEM IS HANDLING THESE — leave their slots empty, don't schedule them yourself:
+- Blocked: ${bl}
+- Recurring (today): ${rl}
+- Pinned events (today): ${el}
 
-═══ HARD RULES (output is invalid if you break these) ═══
+RULES
+- Schedule only within ${startTime}–${endTime}.
+- Build around the interests. Real activities, not "Personal time".
+- No filler titles ("Free time", "Open time", etc). Empty space is fine — leave gaps.
+- At most one 10–15 min break between intensive blocks. No back-to-back breaks. No invented "wind-down" or "reflection" rituals.
+- Each block: a 1–2 sentence description explaining why-this-why-now. Calm tone.
+- Each block: 3 alternative "swaps" drawn from interests (or alt formats for breaks).
 
-1. THE USER'S NOTE IS A HARD REQUIREMENT, NOT A HINT.
-   Read it as binding instructions. Examples of how to obey:
-   • "Interview at 9pm" → a block titled "Interview", time 21:00. NOT "Interview prep" at 21:00 with the actual interview later. The event the user named goes at the time they named.
-   • "Movies at 9pm" → a block titled "Movies" at 21:00. If "Movies" isn't already in their interests, add it anyway because they asked for it.
-   • "Push dinner back an hour" → if Dinner exists in the day, move it +60 min from its usual slot.
-   • "Travel time for X" → insert a "Travel to X" block immediately before X (15–30 min depending on context).
-   • "More focus on Coding" → allocate noticeably more total minutes to Coding than to other interests.
-   • "Lighter day, I'm tired" → fewer blocks, longer breaks, no marathon focus.
-   • "Interview prep before the interview" → ONE prep block before. NOT three.
-   If the note conflicts with energy/mood advice, the note WINS.
-
-2. NO FILLER. NO PREP-BLOCK INFLATION.
-   • At most ONE break (10–15 min) between two intensive blocks. Never two breaks back-to-back.
-   • Never replace a user-requested event with a "preparation" or "warm-up" block. If they asked for "Interview at 9pm", you do NOT schedule "Final preparation" at 9pm and push the interview later.
-   • If there's nothing meaningful to schedule for an hour, leave a gap — empty space is fine, the system will handle it.
-   • Don't invent meals, "wind-down", "reflection", or "transition" rituals unless the user actually wants them.
-
-3. WINDOW + BLOCKED + RECURRING.
-   • Schedule ONLY within ${startTime}–${endTime}. Anything outside is discarded.
-   • Blocked times — never overlap: ${bl}.
-   • Recurring activities are inserted AUTOMATICALLY by the system after your reply. Leave their exact slots EMPTY: ${rl}. Don't try to schedule them yourself.
-
-4. OUTPUT FORMAT.
-   • Strict JSON array only. No markdown fences, no prose, no comments.
-   • "category" and "color" are SEPARATE fields. Never put a color name (blue, gray, etc.) in "category".
-
-═══ DESIGN PRINCIPLES (apply only after the hard rules) ═══
-
-- Build around the INTERESTS, specifically. "Reading — finish chapter 3", not "Personal time".
-- Each block's description: 1–2 sentences explaining WHY this, WHY now. Reference the user's actual energy/mood/note when natural. Calm-friend tone, not productivity-bro.
-- For every block, supply 3 "swaps" — alternatives. For hobby/focus blocks, draw from their interests. For meals/breaks, suggest formats (cook vs order, walk vs stretch).
-
-═══ SCHEMA ═══
-
-Each item:
-{
-  "time": "HH:MM",
-  "endTime": "HH:MM",
-  "title": "Short — usually 1–4 words",
-  "description": "1–2 sentence why-this-why-now",
-  "category": one of: "wellness" | "hobby" | "focus" | "task" | "social" | "meal" | "break",
-  "color":    one of: "teal" | "purple" | "blue" | "coral" | "pink" | "amber" | "gray",
-  "type":     one of: "interest" | "task" | "meal" | "break",
-  "swaps":    array of exactly 3 strings
-}
-
-Category ↔ color pairing (pick the matching pair):
-- wellness ↔ teal     • hobby ↔ purple   • focus ↔ blue
-- task ↔ coral        • social ↔ pink    • meal ↔ amber     • break ↔ gray
-
-EXAMPLE output for a person whose note was "Interview at 9pm, prep beforehand":
+OUTPUT — strict JSON array. No markdown, no prose:
 [
-  {"time":"19:30","endTime":"20:30","title":"Interview prep","description":"One last skim of your notes — you've already done the deep prep, this is just keeping it warm.","category":"task","color":"coral","type":"task","swaps":["Mock-interview yourself","Re-read job description","Quick walk to clear head"]},
-  {"time":"20:30","endTime":"21:00","title":"Wind-down + setup","description":"Tea, water, find a quiet room. Energy 7 — channel it without burning it.","category":"break","color":"gray","type":"break","swaps":["Stretch","Quick walk","Box breathing"]},
-  {"time":"21:00","endTime":"22:00","title":"Interview","description":"This is the moment. You're prepared.","category":"social","color":"pink","type":"task","swaps":[]}
+  {
+    "time":"HH:MM","endTime":"HH:MM",
+    "title":"1–4 words",
+    "description":"1–2 sentence why",
+    "category":"wellness|hobby|focus|task|social|meal|break",
+    "color":"teal|purple|blue|coral|pink|amber|gray",
+    "type":"interest|task|meal|break",
+    "swaps":["alt1","alt2","alt3"]
+  }
 ]
 
-Notice: the Interview is at 21:00 because the user said "9pm". One prep block, one wind-down. No three breaks. No "Final preparation" at 22:55.`;
+Pair category↔color: wellness↔teal · hobby↔purple · focus↔blue · task↔coral · social↔pink · meal↔amber · break↔gray.`;
   }
 };
 
@@ -499,7 +454,9 @@ Notice: the Interview is at 21:00 because the user said "9pm". One prep block, o
 // two segments and the visible portion that falls inside the active
 // window is inserted.
 const Reconcile = {
-  apply(sched, recurring, blocked, startTime, endTime){
+  // Priority (strongest → weakest): blocked > userEvents > recurring > AI items.
+  // userEvents come from the new Time-sensitive events UI: {title, time, durationMin}.
+  apply(sched, recurring, blocked, startTime, endTime, userEvents){
     const sm = U.t2m(startTime), em = U.t2m(endTime);
     const t2 = U.t2m;
     const ovlp = (a,b,c,d) => t2(a) < t2(d) && t2(b) > t2(c);
@@ -526,6 +483,31 @@ const Reconcile = {
       });
     });
 
+    // User-pinned events (Time-sensitive events on the Generate page).
+    // Stronger than recurring: today the user said "Interview at 9pm" — that
+    // beats the habitual "Gym at 7am" if they collide. Loses only to blocked.
+    // Tagged with _pinned=true so recurring can detect them specifically
+    // (instead of conflating with AI-generated tasks).
+    (userEvents||[]).forEach(ev => {
+      if(!ev||!ev.time) return;
+      const dur = ev.durationMin || 60;
+      const visStart = Math.max(t2(ev.time), sm);
+      const visEnd   = Math.min(t2(ev.time) + dur, em);
+      if(visStart >= visEnd) return;
+      const vs = U.fmtMin(visStart), ve = U.fmtMin(visEnd);
+      // Abstain entirely if blocked occupies the slot — blocked wins.
+      if(out.some(it => it.type === 'blocked' && ovlp(it.time, it.endTime, vs, ve))) return;
+      // Drop any conflicting non-blocked items.
+      out = out.filter(it => it.type === 'blocked' || !ovlp(it.time, it.endTime, vs, ve));
+      out.push({
+        time:vs, endTime:ve,
+        title:ev.title || 'Event',
+        description:'Pinned by you for this time.',
+        category:'task', color:'coral', type:'task',
+        swaps:[], done:false, _pinned:true
+      });
+    });
+
     (recurring||[]).forEach(r => {
       if(!r||!r.start||!r.end) return;
       const visStart = Math.max(t2(r.start), sm);
@@ -534,11 +516,10 @@ const Reconcile = {
       const vs = U.fmtMin(visStart), ve = U.fmtMin(visEnd);
       // Already at this exact slot? skip (avoid dup if AI happened to comply)
       if(out.some(it => it.title === r.label && it.time === vs && it.endTime === ve)) return;
-      // Blocked is the strongest constraint — if it occupies any of the
-      // recurring slot, the recurring abstains entirely for this day.
-      if(out.some(it => it.type === 'blocked' && ovlp(it.time, it.endTime, vs, ve))) return;
-      // Otherwise: drop conflicting non-blocked items, then insert.
-      out = out.filter(it => !ovlp(it.time, it.endTime, vs, ve));
+      // Blocked or pinned-event in the slot — recurring abstains for today.
+      if(out.some(it => (it.type === 'blocked' || it._pinned) && ovlp(it.time, it.endTime, vs, ve))) return;
+      // Otherwise: drop conflicting AI items, then insert.
+      out = out.filter(it => it.type === 'blocked' || it._pinned || !ovlp(it.time, it.endTime, vs, ve));
       out.push({
         time:vs, endTime:ve,
         title:r.label,
@@ -779,6 +760,7 @@ const TL = {
 /* ─── GENERATE PAGE ─── */
 const GenPage = {
   _dayTasks:[], _weekTasks:[],
+  _dayEvents:[], // [{title, time:'HH:MM', durationMin}]
 
   init(){
     // set default date to today
@@ -816,9 +798,10 @@ const GenPage = {
       const el=document.getElementById(id);
       if(el) el.value='';
     });
-    this._dayTasks=[]; this._weekTasks=[];
+    this._dayTasks=[]; this._weekTasks=[]; this._dayEvents=[];
     const dt=document.getElementById('day-task-tags');  if(dt) dt.innerHTML='';
     const wt=document.getElementById('week-task-tags'); if(wt) wt.innerHTML='';
+    const tsList=document.getElementById('ts-list'); if(tsList) tsList.innerHTML='';
 
     this._updateWeekCta();
   },
@@ -906,6 +889,38 @@ const GenPage = {
       this._weekTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeWeekTask('${U.esc(t)}')">×</span></div>`).join('');
   },
 
+  // Time-sensitive events for Single Day. The user pins specific events to
+  // specific times and the system locks them in place — no AI interpretation.
+  addTimeEvent(){
+    const title = document.getElementById('ts-title').value.trim();
+    const time  = document.getElementById('ts-time').value;
+    const dur   = parseInt(document.getElementById('ts-duration').value) || 60;
+    if(!title || !time){ U.toast('Add both a title and a time.'); return; }
+    this._dayEvents.push({ title, time, durationMin: dur });
+    this._dayEvents.sort((a,b) => U.t2m(a.time) - U.t2m(b.time));
+    document.getElementById('ts-title').value = '';
+    document.getElementById('ts-time').value  = '';
+    this._renderTimeEvents();
+  },
+  _renderTimeEvents(){
+    const el = document.getElementById('ts-list');
+    if(!el) return;
+    el.innerHTML = this._dayEvents.map((e,i) => {
+      const endMin = U.t2m(e.time) + (e.durationMin || 60);
+      const range = `${e.time}–${U.fmtMin(endMin)}`;
+      return `<div class="ts-item">
+        <span class="ts-item-title">${U.esc(e.title)}</span>
+        <span class="ts-item-time">${range}</span>
+        <span class="ts-item-dur">${e.durationMin} min</span>
+        <button class="ts-item-x" onclick="GenPage._removeTimeEvent(${i})" title="Remove">×</button>
+      </div>`;
+    }).join('');
+  },
+  _removeTimeEvent(i){
+    this._dayEvents.splice(i, 1);
+    this._renderTimeEvents();
+  },
+
   async generateDay(){
     const s=Store.get();
     if(!s.interests.length){ U.toast('Add interests in Setup first!'); return; }
@@ -938,15 +953,17 @@ const GenPage = {
 
     this._showLoading(true, 'Generating your day...', 'Building schedule around your interests');
 
+    const events = this._dayEvents.slice();
     try{
-      const prompt=AI.prompt(U.dayName(dateKey),startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote);
+      const prompt=AI.prompt(U.dayName(dateKey),startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote,events);
       const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
       // Reconcile user constraints on top of AI output. AI was told to leave
-      // recurring slots empty; we now insert them + blocked at exact times.
-      const merged = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime);
+      // events + recurring slots empty; we insert them at exact times.
+      const merged = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, events);
       s.schedules[dateKey] = merged;
     } catch(e){
-      s.schedules[dateKey]=Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec);
+      const fallback = Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec);
+      s.schedules[dateKey] = Reconcile.apply(fallback, [], [], startTime, endTime, events);
       U.toast(e.message?.includes('API key')?'Using smart fallback (add Groq key for AI generation).':'AI failed — using smart fallback.');
     }
 
@@ -992,9 +1009,9 @@ const GenPage = {
       const isWkd=U.isWeekend(dk);
       const dayMood=s.dayMoods[dk]||mood;
       try{
-        const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote);
+        const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote,[]);
         const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
-        s.schedules[dk] = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime);
+        s.schedules[dk] = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, []);
       } catch(e){
         s.schedules[dk]=Fallback.build(dk,startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec);
       }
@@ -1229,9 +1246,9 @@ const CalPage = {
 
     U.toast(`Regenerating ${U.dayName(dk)}...`);
     try{
-      const prompt=AI.prompt(U.dayName(dk),startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec,U.isWeekend(dk),'');
+      const prompt=AI.prompt(U.dayName(dk),startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec,U.isWeekend(dk),'',[]);
       const ns=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
-      s.schedules[dk] = Reconcile.apply(ns.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime);
+      s.schedules[dk] = Reconcile.apply(ns.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, []);
     } catch(e){
       s.schedules[dk]=Fallback.build(dk,startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec);
     }
