@@ -1,0 +1,19 @@
+name = "daycraft-reminders"
+main = "src/index.js"
+compatibility_date = "2025-04-01"
+
+# Cron Triggers — runs the scheduled() handler every minute.
+# Cloudflare's free plan supports cron triggers at no cost.
+[triggers]
+crons = ["* * * * *"]
+
+# Free observability — see logs of every run in `wrangler tail` and the
+# Cloudflare dashboard. No cost.
+[observability]
+enabled = true
+
+# vars are public (injected at build time). secrets are encrypted (set via
+# `wrangler secret put`). The service-account JSON lives in a secret.
+[vars]
+PROJECT_ID = "daycraft-72848"
+TIMEZONE   = "America/Phoenix"

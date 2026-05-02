@@ -1,0 +1,13 @@
+{
+  "name": "daycraft-reminders-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "tail":   "wrangler tail",
+    "dev":    "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

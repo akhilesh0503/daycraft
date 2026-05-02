@@ -1724,9 +1724,22 @@ const Notify = {
   init(){ /* permission requested explicitly via Setup */ },
   async request(){
     if(!this.supported()){ U.toast('This browser does not support notifications.'); return; }
-    if(Notification.permission==='granted'){ U.toast('Notifications already enabled.'); return; }
+    if(Notification.permission==='granted'){
+      // Already permitted — make sure this device has a cloud-push token.
+      if(Auth._user) await Sync.registerFcmToken();
+      U.toast('Notifications enabled.');
+      this._renderStatus();
+      return;
+    }
     const p=await Notification.requestPermission();
-    U.toast(p==='granted'?'Notifications enabled!':'Permission denied.');
+    if(p === 'granted'){
+      U.toast('Notifications enabled!');
+      // Subscribe this device for cloud push so reminders fire when the
+      // app is closed (only meaningful when signed in).
+      if(Auth._user) await Sync.registerFcmToken();
+    } else {
+      U.toast('Permission denied.');
+    }
     this._renderStatus();
   },
   _renderStatus(){
@@ -1993,6 +2006,9 @@ const Auth = {
     if(!this._wired) return;
     try{
       this.toggleUserMenu(false);
+      // Yank this device's FCM token from the user's array first — otherwise
+      // the Worker would keep pushing reminders to a device that signed out.
+      await Sync.unregisterFcmToken();
       await Sync.signOut();
       U.toast('Signed out. Daycraft is now in guest mode.');
     }catch(e){ U.toast('Sign out failed.'); }
@@ -2061,6 +2077,7 @@ const Auth = {
 /* ─── SYNC (Firebase Auth + Firestore — bound only once config is provided) ─── */
 const Sync = {
   _firebase:null, _auth:null, _db:null, _unsubFromSnapshot:null, _writeTimer:null,
+  _fbApp:null, _fbMessaging:null, _messaging:null, _lastFcmToken:null,
   // Public client-side keys. Security comes from Firestore rules (users/{uid}
   // is locked to request.auth.uid == uid). Safe to commit.
   CONFIG:{
@@ -2071,6 +2088,9 @@ const Sync = {
     messagingSenderId: "778642472327",
     appId: "1:778642472327:web:2e47a92f92d233fbe7e722"
   },
+  // VAPID public key — Web Push identifier for the daycraft-72848 sender.
+  // Public, safe to commit. Issued under Project Settings → Cloud Messaging.
+  VAPID_KEY: "BNsWlmjmucmulCDY00JXPdDzgOP9YGlwpK-O-uI1m9A0EsYNkJ_XwcBGtjihR_xdZ2VCXEV8DkFRGdYDiupaAq4",
   async init(){
     if(!this.CONFIG){
       Auth._wired = false;
@@ -2083,6 +2103,7 @@ const Sync = {
       const fbAuth = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js');
       const fbStore= await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');
       const app = fbApp.initializeApp(this.CONFIG);
+      this._fbApp = app;
       this._auth = fbAuth.getAuth(app);
       this._db   = fbStore.getFirestore(app);
       this._fbAuth=fbAuth; this._fbStore=fbStore;
@@ -2119,6 +2140,11 @@ const Sync = {
 
         Auth._onUserChange({ uid:user.uid, name:user.displayName, email:user.email, photoURL:user.photoURL });
         await this._pullThenSubscribe(user.uid);
+        // If notifications are already permitted, silently ensure this device
+        // has an FCM token registered for cloud-pushed reminders.
+        if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+          this.registerFcmToken().catch(()=>{});
+        }
       });
       // If user came from landing's "Sign in" CTA, surface the modal —
       // but only if they aren't already signed in (Firebase may have a
@@ -2221,6 +2247,94 @@ const Sync = {
     delete out._wrappedForSync;    // internal flag, never sync
     delete out._origSave;          // internal ref, never sync
     return out;
+  },
+
+  // ─── FCM (cloud push for phone-locked reminders) ─────────────────────
+  // Lazy-loaded because Firebase Messaging isn't always needed (guests
+  // never trigger this path). Caches the messaging instance per session.
+  async _ensureMessaging(){
+    if(this._messaging) return this._messaging;
+    if(!this._fbApp) return null;
+    if(typeof Notification === 'undefined') return null;
+    if(!('serviceWorker' in navigator)) return null;
+    const fbMsg = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging.js');
+    this._fbMessaging = fbMsg;
+    this._messaging   = fbMsg.getMessaging(this._fbApp);
+    // Foreground messages — browser doesn't auto-show, so we render the
+    // notification ourselves. Background pushes are handled inside sw.js.
+    fbMsg.onMessage(this._messaging, payload => {
+      try {
+        if(Notification.permission !== 'granted') return;
+        const n = new Notification(payload.notification?.title || 'Daycraft', {
+          body: payload.notification?.body || '',
+          icon: '/icons/icon-192.png',
+          tag:  payload.data?.reminderId || 'daycraft'
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      } catch(e){}
+    });
+    return this._messaging;
+  },
+
+  // Subscribe this device for FCM pushes. Idempotent — repeated calls reuse
+  // the same token. Saves the token to Firestore under the user's fcmTokens
+  // array so the Cloudflare Worker can find it when firing reminders.
+  async registerFcmToken(){
+    if(!this._auth?.currentUser) return null;
+    if(typeof Notification === 'undefined') return null;
+    if(Notification.permission !== 'granted') return null;
+    const m = await this._ensureMessaging();
+    if(!m) return null;
+    try {
+      const swReg = await navigator.serviceWorker.ready;
+      const token = await this._fbMessaging.getToken(this._messaging, {
+        vapidKey: this.VAPID_KEY,
+        serviceWorkerRegistration: swReg
+      });
+      if(!token) return null;
+      this._lastFcmToken = token;
+      const local = Store.get();
+      const tokens = Array.isArray(local.fcmTokens) ? local.fcmTokens.slice() : [];
+      if(!tokens.includes(token)){
+        tokens.push(token);
+        // Cap at 5 most-recent devices so the array doesn't grow forever
+        local.fcmTokens = tokens.slice(-5);
+        Store.save();
+      }
+      return token;
+    } catch(e){
+      console.warn('FCM registerFcmToken failed:', e);
+      return null;
+    }
+  },
+
+  // Remove this device's token from the user's fcmTokens before sign-out
+  // so notifications don't keep firing for an account this device left.
+  async unregisterFcmToken(){
+    try {
+      const m = this._messaging;
+      if(!m || !this._fbMessaging) return;
+      const swReg = await navigator.serviceWorker.ready;
+      const token = this._lastFcmToken || await this._fbMessaging.getToken(this._messaging, {
+        vapidKey: this.VAPID_KEY,
+        serviceWorkerRegistration: swReg
+      });
+      const local = Store.get();
+      if(token && Array.isArray(local.fcmTokens)){
+        local.fcmTokens = local.fcmTokens.filter(t => t !== token);
+        // Push immediately rather than wait for the 600ms debounce, since
+        // we're about to sign out and tear down the wrapped save.
+        if(this._auth?.currentUser){
+          const ref = this._fbStore.doc(this._db, `users/${this._auth.currentUser.uid}`);
+          await this._fbStore.setDoc(ref, this._cleanForFirestore(local), { merge: true });
+        }
+      }
+      // Tell FCM the token is no longer needed (gets a fresh one next sign-in)
+      try { await this._fbMessaging.deleteToken(this._messaging); } catch(e){}
+      this._lastFcmToken = null;
+    } catch(e){
+      console.warn('FCM unregisterFcmToken failed:', e);
+    }
   }
 };
 
