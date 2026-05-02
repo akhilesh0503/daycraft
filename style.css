@@ -385,6 +385,11 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
 .rem-acts{display:flex;gap:4px;flex-direction:column;flex-shrink:0}
 .iconbtn{background:none;border:none;cursor:pointer;font-size:13px;color:var(--t3);transition:color .15s;padding:2px}
 .iconbtn:hover{color:var(--t1)}.iconbtn.del:hover{color:var(--coral)}
+.iconbtn.ack-btn{font-size:14px;line-height:1}
+.iconbtn.ack-btn:hover{color:var(--teal)}
+.iconbtn.ack-btn.is-acked{color:var(--teal)}
+.rem-item.acked{opacity:.55}
+.rem-item.acked .rem-title{text-decoration:line-through;text-decoration-color:var(--t3);color:var(--t2)}
 .no-rem{text-align:center;padding:24px 12px;color:var(--t3);font-size:13px}
 
 /* cal right */

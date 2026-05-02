@@ -49,15 +49,34 @@ async function runOnce(env, ctx) {
     log(`tick ${dateStr} ${timeStr} dow=${dow} users=${users.length}`);
 
     let pushed = 0, errors = 0, removed = 0;
+    const nowMin = hhMmToMin(timeStr);
 
     for (const userDoc of users) {
       const u = parseFirestoreDoc(userDoc);
       const uid = userDoc.name.split('/').pop();
       const reminders = u.reminders || [];
       const tokens    = u.fcmTokens || [];
+      const acks      = u.acknowledgements || {};
       if (!tokens.length || !reminders.length) continue;
 
-      const due = reminders.filter(r => r && r.time === timeStr && reminderMatches(r, dateStr, dow));
+      // A reminder is "due" if:
+      //   1. Today's date matches its date or repeat rule
+      //   2. The current minute is at-or-after the reminder time
+      //   3. (now - reminderTime) is a multiple of the priority's interval:
+      //        high → 5 min, medium → 30 min, low → 60 min
+      //   4. The reminder hasn't been acknowledged for today
+      // Repeat-firing stops naturally at midnight (next day = new ack key).
+      const due = reminders.filter(r => {
+        if (!r || !r.time) return false;
+        if (!reminderMatches(r, dateStr, dow)) return false;
+        const remMin = hhMmToMin(r.time);
+        const delta = nowMin - remMin;
+        if (delta < 0) return false;
+        const interval = priorityInterval(r.priority);
+        if (delta % interval !== 0) return false;
+        if (acks[`${r.id || ''}|${dateStr}`]) return false;
+        return true;
+      });
       if (!due.length) continue;
 
       const tokensToRemove = new Set();
@@ -119,6 +138,25 @@ function reminderMatches(r, dateStr, dow) {
 
 function utcDow(yyyymmdd) {
   return new Date(`${yyyymmdd}T12:00:00Z`).getUTCDay();
+}
+
+function hhMmToMin(hhmm) {
+  if (!hhmm || typeof hhmm !== 'string') return -1;
+  const [h, m] = hhmm.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return -1;
+  return h * 60 + m;
+}
+
+// Priority → re-fire interval (minutes). Reminder pings repeat at this
+// cadence after the initial fire, until the user marks it Done. Default
+// (unspecified priority) is treated as medium.
+function priorityInterval(priority) {
+  switch (priority) {
+    case 'high':   return 5;
+    case 'low':    return 60;
+    case 'medium':
+    default:       return 30;
+  }
 }
 
 // ─── Time helpers (Intl-driven, no Date arithmetic in TZ) ────────────────

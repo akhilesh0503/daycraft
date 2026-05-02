@@ -12,6 +12,11 @@ const Store = (() => {
     schedules:{},   // dateKey => [{...item, done}]
     dayMoods:{},    // dateKey => mood string
     reminders:[],
+    // Per-day reminder acknowledgements. Key = `${reminderId}|${YYYY-MM-DD}`.
+    // Set when the user marks a reminder Done; the Worker reads this to
+    // stop re-pushing high/medium/low priority reminders that have been
+    // acknowledged for today.
+    acknowledgements:{},
     streak:0, streakDays:[0,0,0,0,0,0,0], lastStreakDate:''
   });
   let d = defaults();
@@ -1123,8 +1128,10 @@ const CalPage = {
     const list=document.getElementById('reminders-list');
     if(!rems.length){ list.innerHTML='<div class="no-rem">No reminders. Click "+ Reminder" to add one.</div>'; return; }
 
-    list.innerHTML=rems.map(r=>`
-      <div class="rem-item">
+    list.innerHTML=rems.map(r=>{
+      const acked = this._isAcked(r.id, r.date);
+      return `
+      <div class="rem-item${acked?' acked':''}">
         <div class="rem-bar" style="background:${CLRS[r.color]||'var(--amber)'}"></div>
         <div class="rem-body">
           <div class="rem-top">
@@ -1138,10 +1145,11 @@ const CalPage = {
           ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
         </div>
         <div class="rem-acts">
-          <button class="iconbtn" onclick="CalPage._editRem('${r.id}')">✎</button>
-          <button class="iconbtn del" onclick="CalPage._delRem('${r.id}')">×</button>
+          <button class="iconbtn ack-btn${acked?' is-acked':''}" title="${acked?'Mark not done':'Mark done — stops repeat pushes'}" onclick="CalPage.toggleAck('${r.id}','${r.date}')">${acked?'✓':'○'}</button>
+          <button class="iconbtn" title="Edit" onclick="CalPage._editRem('${r.id}')">✎</button>
+          <button class="iconbtn del" title="Delete" onclick="CalPage._delRem('${r.id}')">×</button>
         </div>
-      </div>`).join('');
+      </div>`;}).join('');
   },
 
   _renderDayDetail(dk){
@@ -1178,16 +1186,21 @@ const CalPage = {
     const CLRS={teal:'var(--teal)',purple:'var(--purple)',coral:'var(--coral)',blue:'var(--blue)',pink:'var(--pink)',amber:'var(--amber)'};
     const el=document.getElementById('cal-day-reminders');
     if(!rems.length){ el.innerHTML='<div class="no-rem">No reminders for this day.</div>'; return; }
-    el.innerHTML=rems.map(r=>`
-      <div class="rem-item">
+    el.innerHTML=rems.map(r=>{
+      const acked = this._isAcked(r.id, dk);
+      return `
+      <div class="rem-item${acked?' acked':''}">
         <div class="rem-bar" style="background:${CLRS[r.color]||'var(--amber)'}"></div>
         <div class="rem-body">
           <div class="rem-top"><span class="rem-title">${r.title}</span><span class="rbadge rbadge-${r.priority}">${r.priority}</span></div>
           <div class="rem-meta">${r.time}</div>
           ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
         </div>
-        <button class="iconbtn del" onclick="CalPage._delRem('${r.id}')">×</button>
-      </div>`).join('');
+        <div class="rem-acts">
+          <button class="iconbtn ack-btn${acked?' is-acked':''}" title="${acked?'Mark not done':'Mark done — stops repeat pushes'}" onclick="CalPage.toggleAck('${r.id}','${dk}')">${acked?'✓':'○'}</button>
+          <button class="iconbtn del" onclick="CalPage._delRem('${r.id}')">×</button>
+        </div>
+      </div>`;}).join('');
   },
 
   _updateProgress(dk){
@@ -1264,6 +1277,30 @@ const CalPage = {
 
   openReminderModal(dk){
     Modals.openRem(dk||this._selDay);
+  },
+
+  // Toggle the "done" state for a reminder on a given date. The Worker reads
+  // acknowledgements before re-pushing — once marked done, repeated pings
+  // stop for this reminder for the rest of today.
+  toggleAck(id, dk){
+    if(!id) return;
+    const dateKey = dk || U.nowKey();
+    const key = `${id}|${dateKey}`;
+    const s = Store.get();
+    if(!s.acknowledgements) s.acknowledgements = {};
+    if(s.acknowledgements[key]) delete s.acknowledgements[key];
+    else s.acknowledgements[key] = true;
+    Store.save();
+    // Re-render every surface that shows reminders
+    this._renderReminders();
+    this._renderMiniCal();
+    if(this._selDay) this._renderDayReminders(this._selDay);
+    if(document.getElementById('page-today').classList.contains('active')) Today.render();
+  },
+
+  _isAcked(reminderId, dateKey){
+    const s = Store.get();
+    return !!(s.acknowledgements && s.acknowledgements[`${reminderId}|${dateKey}`]);
   },
 
   // Does reminder r occur on date dk? Gates by start date so a daily reminder
@@ -1406,8 +1443,10 @@ const Today = {
     const el=document.getElementById('today-reminders');
     if(!el) return;
     if(!rems.length){ el.innerHTML='<div class="no-rem">Nothing scheduled. Try <b>⌘K</b> to add one.</div>'; return; }
-    el.innerHTML=rems.map(r=>`
-      <div class="rem-item">
+    el.innerHTML=rems.map(r=>{
+      const acked = CalPage._isAcked(r.id, dk);
+      return `
+      <div class="rem-item${acked?' acked':''}">
         <div class="rem-bar" style="background:${CLRS[r.color]||'var(--amber)'}"></div>
         <div class="rem-body">
           <div class="rem-top"><span class="rem-title">${r.title}</span><span class="rbadge rbadge-${r.priority}">${r.priority}</span></div>
@@ -1415,10 +1454,11 @@ const Today = {
           ${r.notes?`<div class="rem-notes">${r.notes}</div>`:''}
         </div>
         <div class="rem-acts">
+          <button class="iconbtn ack-btn${acked?' is-acked':''}" title="${acked?'Mark not done':'Mark done — stops repeat pushes'}" onclick="CalPage.toggleAck('${r.id}','${dk}')">${acked?'✓':'○'}</button>
           <button class="iconbtn" title="Edit" onclick="CalPage._editRem('${r.id}')">✎</button>
           <button class="iconbtn del" title="Delete" onclick="CalPage._delRem('${r.id}')">×</button>
         </div>
-      </div>`).join('');
+      </div>`;}).join('');
   },
 
   // Triggered by the big "Plan my day" / "Regenerate day" button.
