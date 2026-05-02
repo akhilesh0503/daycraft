@@ -341,6 +341,10 @@ const AI = {
     if(!Array.isArray(arr)||!arr.length) return null;
     const COLORS=new Set(['teal','purple','coral','blue','pink','amber','gray']);
     const TYPES=new Set(['interest','task','meal','break','blocked']);
+    // The AI sometimes puts a color name ("blue") in the category field —
+    // unhelpful as a label. Map color → human category so the badge reads
+    // "focus" instead of "blue".
+    const COLOR_TO_CAT={teal:'wellness',purple:'hobby',blue:'focus',coral:'task',pink:'social',amber:'meal',gray:'break'};
     const sm = ctx?.startTime ? U.t2m(ctx.startTime) : 0;
     const em = ctx?.endTime   ? U.t2m(ctx.endTime)   : 1440;
     const blocked = ctx?.blocked || [];
@@ -360,12 +364,16 @@ const AI = {
       if(isNaN(a)||isNaN(b)||a>=b) continue;
       if(a<sm||b>em) continue;
       if(hitsBlocked(it.time,it.endTime)) continue;
+      // If the model dropped a color name into category, swap it for the
+      // proper human label — never show "blue" / "gray" / "teal" as a tag.
+      let category = hasStr(it.category) ? String(it.category).toLowerCase().slice(0,40) : 'general';
+      if(COLOR_TO_CAT[category]) category = COLOR_TO_CAT[category];
       out.push({
         time:it.time,
         endTime:it.endTime,
         title:String(it.title).slice(0,120),
         description:hasStr(it.description)?String(it.description).slice(0,400):'',
-        category:hasStr(it.category)?String(it.category).slice(0,40):'general',
+        category,
         color:COLORS.has(it.color)?it.color:'gray',
         type:TYPES.has(it.type)?it.type:'interest',
         swaps:Array.isArray(it.swaps)?it.swaps.filter(hasStr).slice(0,5):[]
@@ -447,14 +455,16 @@ Output schema (one example item shown — your output must be the FULL array of 
   }
 ]
 
-Color/category map (pick the best fit for each block):
-- teal   = wellness  (movement, body, mindfulness)
-- purple = hobby     (creative, leisure, music, gaming, reading)
-- blue   = focus     (deep work, study, coding)
-- coral  = task      (chores, errands, must-dos)
-- pink   = social    (calls, meetups, dates)
-- amber  = meal
-- gray   = break
+"category" and "color" are SEPARATE fields. Use the category names below in "category" — do NOT put a color name in "category". The color is just the visual token.
+
+Category → color map (pick category from the LEFT column, color from the RIGHT):
+- wellness → teal   (movement, body, mindfulness)
+- hobby    → purple (creative, leisure, music, gaming, reading)
+- focus    → blue   (deep work, study, coding)
+- task     → coral  (chores, errands, must-dos)
+- social   → pink   (calls, meetups, dates)
+- meal     → amber
+- break    → gray
 
 Type must be one of: "interest" | "task" | "meal" | "break".`;
   }
@@ -756,6 +766,14 @@ const GenPage = {
     document.getElementById('day-date-pick').value=today;
     document.getElementById('week-start-pick').value=today;
 
+    // Hook the date picker so changing it re-evaluates whether "Start from
+    // now" still applies. Add the listener once (subsequent inits are no-ops).
+    const dp = document.getElementById('day-date-pick');
+    if(dp && !dp._dcWired){
+      dp.addEventListener('change', ()=>this._refreshStartOpts());
+      dp._dcWired = true;
+    }
+
     // Pull defaults from Settings — fixes the "energy always 6" bug.
     // The energy slider is a range input which can't be empty, so we MUST
     // populate it from Store on every visit; otherwise the user's actual
@@ -796,12 +814,24 @@ const GenPage = {
     document.getElementById('day-opt-today').classList.toggle('active',v==='today');
     document.getElementById('day-opt-pick').classList.toggle('active',v==='pick');
     document.getElementById('day-date-pick').style.display=v==='pick'?'block':'none';
+    this._refreshStartOpts();
   },
 
   startOpt(v){
     document.getElementById('start-opt-now').classList.toggle('active',v==='now');
     document.getElementById('start-opt-pick').classList.toggle('active',v==='pick');
     document.getElementById('day-start-pick').style.display=v==='pick'?'block':'none';
+  },
+
+  // "Start from now" only makes sense if you're scheduling TODAY. The
+  // moment a future date is picked, hide it and force "Pick a time".
+  _refreshStartOpts(){
+    const usePick   = document.getElementById('day-opt-pick').classList.contains('active');
+    const pickedDate= document.getElementById('day-date-pick').value;
+    const isFuture  = usePick && pickedDate && pickedDate !== U.nowKey();
+    const nowBtn    = document.getElementById('start-opt-now');
+    nowBtn.style.display = isFuture ? 'none' : '';
+    if(isFuture) this.startOpt('pick');
   },
 
   weekStartOpt(v){
