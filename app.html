@@ -365,14 +365,7 @@
 <div class="page" id="page-generate">
   <div class="gen-wrap">
 
-    <!-- TAB SWITCHER -->
-    <div class="tab-bar">
-      <button class="tab-btn active" id="tab-day"  onclick="GenPage.switchTab('day')">Single Day</button>
-      <button class="tab-btn"        id="tab-week" onclick="GenPage.switchTab('week')">Week (1–7 days)</button>
-    </div>
-
-    <!-- ── DAY TAB ── -->
-    <div class="tab-panel active" id="panel-day">
+    <div id="panel-day">
       <div class="gen-section">
         <h3 class="gen-section-title">Which day?</h3>
         <div class="date-pick-row">
@@ -446,74 +439,6 @@
       <button class="gen-cta" id="gen-day-btn" onclick="GenPage.generateDay()">
         <span class="gen-cta-main">Generate Day Schedule</span>
         <span class="gen-cta-sub">AI builds your day around your interests</span>
-      </button>
-    </div>
-
-    <!-- ── WEEK TAB ── -->
-    <div class="tab-panel" id="panel-week">
-      <div class="gen-section">
-        <h3 class="gen-section-title">Start date</h3>
-        <div class="date-pick-row">
-          <button class="date-opt active" id="week-opt-today" onclick="GenPage.weekStartOpt('today')">From today</button>
-          <button class="date-opt" id="week-opt-pick" onclick="GenPage.weekStartOpt('pick')">Pick date</button>
-          <input type="date" id="week-start-pick" class="timeinput" style="display:none">
-        </div>
-      </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">How many days? <span class="badge-val" id="week-days-val">7 days</span></h3>
-        <div class="day-count-row" id="day-count-row">
-          <button class="day-count-btn" data-d="1" onclick="GenPage.weekDaysChange(1)">1</button>
-          <button class="day-count-btn" data-d="2" onclick="GenPage.weekDaysChange(2)">2</button>
-          <button class="day-count-btn" data-d="3" onclick="GenPage.weekDaysChange(3)">3</button>
-          <button class="day-count-btn" data-d="4" onclick="GenPage.weekDaysChange(4)">4</button>
-          <button class="day-count-btn" data-d="5" onclick="GenPage.weekDaysChange(5)">5</button>
-          <button class="day-count-btn" data-d="6" onclick="GenPage.weekDaysChange(6)">6</button>
-          <button class="day-count-btn active" data-d="7" onclick="GenPage.weekDaysChange(7)">7</button>
-        </div>
-      </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">Daily start time</h3>
-        <input type="time" id="week-start-time" class="timeinput" value="07:00">
-      </div>
-      <div class="gen-section">
-        <h3 class="gen-section-title">Daily end time</h3>
-        <input type="time" id="week-end-time" class="timeinput" value="22:30">
-      </div>
-      <details class="gen-advanced" id="week-advanced">
-        <summary>Advanced <span class="adv-hint">— mood, energy, extra tasks, AI notes</span></summary>
-        <div class="gen-advanced-body">
-          <div class="gen-section">
-            <h3 class="gen-section-title">Override mood & energy</h3>
-            <div class="override-row">
-              <select class="tinput sel" id="week-mood">
-                <option value="">Use default mood</option>
-                <option>Energised</option><option>Focused</option><option>Relaxed</option>
-                <option>Creative</option><option>Tired</option><option>Anxious</option>
-              </select>
-              <div class="energy-mini">
-                <span class="elbl">Energy</span>
-                <input type="range" min="1" max="10" id="week-energy" step="1" oninput="document.getElementById('week-energy-val').textContent=this.value">
-                <span id="week-energy-val" class="energy-val">6</span>
-              </div>
-            </div>
-          </div>
-          <div class="gen-section">
-            <h3 class="gen-section-title">Extra tasks for this week</h3>
-            <div class="irow">
-              <input type="text" id="week-task-inp" class="tinput" placeholder="Add a must-do task..." onkeydown="if(event.key==='Enter')GenPage.addWeekTask()">
-              <button class="addbtn" onclick="GenPage.addWeekTask()">Add</button>
-            </div>
-            <div class="tags" id="week-task-tags"></div>
-          </div>
-          <div class="gen-section">
-            <h3 class="gen-section-title">Anything else for the AI?</h3>
-            <textarea id="week-notes" class="tinput full tarea" placeholder='e.g. "Heavy interview prep this week" · "Travel Wed-Thu, lighter days"'></textarea>
-          </div>
-        </div>
-      </details>
-      <button class="gen-cta week-cta" id="gen-week-btn" onclick="GenPage.generateWeek()">
-        <span class="gen-cta-main">Generate Week Schedule</span>
-        <span class="gen-cta-sub" id="week-cta-sub">Generating 7 days from today</span>
       </button>
     </div>
 

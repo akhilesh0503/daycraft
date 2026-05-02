@@ -320,7 +320,7 @@ const AI = {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
       body:JSON.stringify({
-        model:'llama-3.3-70b-versatile', temperature:0.7, max_tokens:3000,
+        model:'llama-3.3-70b-versatile', temperature:0.7, max_tokens:4000,
         messages:[
           {role:'system',content:'You are a personal day scheduler. Respond ONLY with a valid JSON array. No markdown, no backticks, no extra text.'},
           {role:'user',content:prompt}
@@ -783,58 +783,34 @@ const TL = {
 
 /* ─── GENERATE PAGE ─── */
 const GenPage = {
-  _dayTasks:[], _weekTasks:[],
+  _dayTasks:[],
   _dayEvents:[], // [{title, time:'HH:MM', durationMin}]
 
   init(){
     // set default date to today
     const today=U.nowKey();
-    document.getElementById('day-date-pick').value=today;
-    document.getElementById('week-start-pick').value=today;
-
-    // Hook the date picker so changing it re-evaluates whether "Start from
-    // now" still applies. Add the listener once (subsequent inits are no-ops).
     const dp = document.getElementById('day-date-pick');
-    if(dp && !dp._dcWired){
-      dp.addEventListener('change', ()=>this._refreshStartOpts());
-      dp._dcWired = true;
+    if(dp){
+      dp.value = today;
+      // Hook the date picker so changing it re-evaluates whether "Start from
+      // now" still applies. Add the listener once (subsequent inits are no-ops).
+      if(!dp._dcWired){
+        dp.addEventListener('change', ()=>this._refreshStartOpts());
+        dp._dcWired = true;
+      }
     }
 
-    // Pull defaults from Settings — fixes the "energy always 6" bug.
-    // The energy slider is a range input which can't be empty, so we MUST
-    // populate it from Store on every visit; otherwise the user's actual
-    // Settings energy never reaches the AI.
+    // Pull energy default from Settings (was the "always 6" bug).
     const s = Store.get();
     const energy = s.energy || 6;
-    ['day-energy','week-energy'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(el) el.value = energy;
-    });
-    ['day-energy-val','week-energy-val'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(el) el.textContent = energy;
-    });
-    // Mood select: leave on "Use default mood" — Store.mood is the fallback
-    // in generateDay/generateWeek anyway.
+    const e=document.getElementById('day-energy');     if(e) e.value = energy;
+    const ev=document.getElementById('day-energy-val'); if(ev) ev.textContent = energy;
 
-    // Reset transient inputs (textareas + extra tasks tag rows) per visit
-    ['day-notes','week-notes'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(el) el.value='';
-    });
-    this._dayTasks=[]; this._weekTasks=[]; this._dayEvents=[];
+    // Reset transient inputs per visit
+    const notes=document.getElementById('day-notes'); if(notes) notes.value='';
+    this._dayTasks=[]; this._dayEvents=[];
     const dt=document.getElementById('day-task-tags');  if(dt) dt.innerHTML='';
-    const wt=document.getElementById('week-task-tags'); if(wt) wt.innerHTML='';
-    const tsList=document.getElementById('ts-list'); if(tsList) tsList.innerHTML='';
-
-    this._updateWeekCta();
-  },
-
-  switchTab(t){
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-    document.getElementById('tab-'+t).classList.add('active');
-    document.getElementById('panel-'+t).classList.add('active');
+    const tsList=document.getElementById('ts-list');    if(tsList) tsList.innerHTML='';
   },
 
   dayOpt(v){
@@ -861,30 +837,6 @@ const GenPage = {
     if(isFuture) this.startOpt('pick');
   },
 
-  weekStartOpt(v){
-    document.getElementById('week-opt-today').classList.toggle('active',v==='today');
-    document.getElementById('week-opt-pick').classList.toggle('active',v==='pick');
-    document.getElementById('week-start-pick').style.display=v==='pick'?'block':'none';
-    this._updateWeekCta();
-  },
-
-  _weekDays:7,
-  weekDaysChange(v){
-    const n = parseInt(v) || 7;
-    this._weekDays = n;
-    document.getElementById('week-days-val').textContent = n+' day'+(n>1?'s':'');
-    document.querySelectorAll('.day-count-btn').forEach(b=>{
-      b.classList.toggle('active', parseInt(b.dataset.d) === n);
-    });
-    this._updateWeekCta();
-  },
-
-  _updateWeekCta(){
-    const days = this._weekDays || 7;
-    const sub = document.getElementById('week-cta-sub');
-    if(sub) sub.textContent = `Generating ${days} day${days>1?'s':''} of schedules`;
-  },
-
   addDayTask(){
     const i=document.getElementById('day-task-inp');
     const v=i.value.trim(); if(!v) return;
@@ -897,20 +849,6 @@ const GenPage = {
     this._dayTasks=this._dayTasks.filter(t=>t!==v);
     document.getElementById('day-task-tags').innerHTML=
       this._dayTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeDayTask('${U.esc(t)}')">×</span></div>`).join('');
-  },
-
-  addWeekTask(){
-    const i=document.getElementById('week-task-inp');
-    const v=i.value.trim(); if(!v) return;
-    if(!this._weekTasks.includes(v)) this._weekTasks.push(v);
-    i.value='';
-    document.getElementById('week-task-tags').innerHTML=
-      this._weekTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeWeekTask('${U.esc(t)}')">×</span></div>`).join('');
-  },
-  _removeWeekTask(v){
-    this._weekTasks=this._weekTasks.filter(t=>t!==v);
-    document.getElementById('week-task-tags').innerHTML=
-      this._weekTasks.map(t=>`<div class="tag">${t}<span class="tag-x" onclick="GenPage._removeWeekTask('${U.esc(t)}')">×</span></div>`).join('');
   },
 
   // Time-sensitive events for Single Day. The user pins specific events to
@@ -1005,51 +943,6 @@ const GenPage = {
     this._showResult([dateKey]);
   },
 
-  async generateWeek(){
-    const s=Store.get();
-    if(!s.interests.length){ U.toast('Add interests in Setup first!'); return; }
-
-    const usePick=document.getElementById('week-opt-pick').classList.contains('active');
-    const startKey=usePick ? document.getElementById('week-start-pick').value : U.nowKey();
-    if(!startKey){ U.toast('Pick a start date.'); return; }
-
-    const days = this._weekDays || 7;
-    const startTime=document.getElementById('week-start-time').value||'07:00';
-    const endTime=document.getElementById('week-end-time').value||'22:30';
-    const mood=document.getElementById('week-mood').value||s.mood;
-    const energy=parseInt(document.getElementById('week-energy').value)||s.energy||6;
-    const tasks=[...s.tasks,...this._weekTasks];
-    const userNote=(document.getElementById('week-notes')?.value||'').trim();
-
-    const dateKeys=Array.from({length:days},(_,i)=>U.addDays(startKey,i));
-
-    this._showLoading(true,'Generating your week...','Starting with day 1');
-
-    for(let i=0;i<dateKeys.length;i++){
-      // Pace requests: stagger 1.2s between days so we don't blow the
-      // free-tier TPM budget. AI.call has its own retry on 429 too, this
-      // just keeps us out of trouble in the first place.
-      if(i > 0) await new Promise(r => setTimeout(r, 1200));
-      const dk=dateKeys[i];
-      document.getElementById('gen-loading-sub').textContent=`Day ${i+1}/${days}: ${U.dayName(dk)}`;
-      const dow=U.dowNum(dk);
-      const rec=s.recurring.filter(r=>r.days.includes(dow));
-      const isWkd=U.isWeekend(dk);
-      const dayMood=s.dayMoods[dk]||mood;
-      try{
-        const prompt=AI.prompt(U.dayName(dk),startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec,isWkd,userNote,[]);
-        const sched=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
-        s.schedules[dk] = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, []);
-      } catch(e){
-        s.schedules[dk]=Fallback.build(dk,startTime,endTime,dayMood,energy,s.interests,tasks,s.blocked,rec);
-      }
-    }
-
-    Store.save();
-    this._showLoading(false);
-    this._showResult(dateKeys);
-  },
-
   _showLoading(show,main,sub){
     document.getElementById('gen-loading').style.display=show?'flex':'none';
     document.getElementById('gen-result').style.display=show?'none':'none';
@@ -1057,10 +950,8 @@ const GenPage = {
       document.getElementById('gen-loading-main').textContent=main||'Generating...';
       document.getElementById('gen-loading-sub').textContent=sub||'';
       document.getElementById('gen-day-btn').disabled=true;
-      document.getElementById('gen-week-btn').disabled=true;
     } else {
       document.getElementById('gen-day-btn').disabled=false;
-      document.getElementById('gen-week-btn').disabled=false;
     }
   },
 
