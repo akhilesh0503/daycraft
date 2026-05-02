@@ -417,56 +417,76 @@ const AI = {
 
     return `You're designing a real day for a real person. Not a generic schedule.
 
-The person:
-- Today is ${dayLabel}, a ${isWeekend ? 'weekend day' : 'weekday'}.
+THE PERSON
+- Today: ${dayLabel} (${isWeekend ? 'weekend' : 'weekday'})
 - Mood: ${mood || 'unspecified'}. ${moodAdvice}
 - Energy: ${energy}/10 — ${energyAdvice}
-- They love (in priority order): ${interests.join(', ') || 'no interests provided — keep the day minimal'}
-- Must-do tasks today: ${tasks.length ? tasks.join(', ') : 'none'}
-- Their note to you: ${note || '(no extra context)'}
+- Interests (priority order): ${interests.join(', ') || 'none provided'}
+- Must-do tasks: ${tasks.length ? tasks.join(', ') : 'none'}
+- Their note to you: ${note || '(none)'}
 
-Active window: ${startTime}–${endTime}.
+ACTIVE WINDOW: ${startTime}–${endTime}.
 
-NON-NEGOTIABLE constraints:
-- Schedule ONLY within ${startTime}–${endTime}. Anything outside that range will be discarded.
-- Blocked times — never overlap these: ${bl}.
-- Recurring activities — these will be placed automatically by the system AFTER your reply, so leave their exact time slots EMPTY in your output: ${rl}.
-- Output a strict JSON array. No markdown fences, no prose, no comments, no trailing text.
+═══ HARD RULES (output is invalid if you break these) ═══
 
-Design principles:
-- Build around the INTERESTS, not generic categories. If "Reading" is on the list, schedule "Reading — finish a chapter", not "Personal time".
-- Don't pad the day with filler. If there isn't a meaningful next thing, leave a gap — empty space is fine and will be cleaned up.
-- Avoid two long focus blocks back-to-back. Insert a 10–15 min break between high-intensity items.
-- Each block's description is 1–2 sentences explaining WHY this, WHY now — written like a calm friend, not a productivity bro. Reference the user's actual energy/mood/interests when you can.
-- For every block, supply 3 "swaps" — alternatives the user could pick instead. For interests/focus blocks, draw the swaps from the interest list. For breaks/meals, suggest alternative formats (cook vs order, walk vs stretch, etc.).
-- Do NOT invent meals or breaks unless they fit the design. Meals only belong on the schedule if the user has set them up as recurring activities — otherwise leave eating out of the plan and let them decide.
+1. THE USER'S NOTE IS A HARD REQUIREMENT, NOT A HINT.
+   Read it as binding instructions. Examples of how to obey:
+   • "Interview at 9pm" → a block titled "Interview", time 21:00. NOT "Interview prep" at 21:00 with the actual interview later. The event the user named goes at the time they named.
+   • "Movies at 9pm" → a block titled "Movies" at 21:00. If "Movies" isn't already in their interests, add it anyway because they asked for it.
+   • "Push dinner back an hour" → if Dinner exists in the day, move it +60 min from its usual slot.
+   • "Travel time for X" → insert a "Travel to X" block immediately before X (15–30 min depending on context).
+   • "More focus on Coding" → allocate noticeably more total minutes to Coding than to other interests.
+   • "Lighter day, I'm tired" → fewer blocks, longer breaks, no marathon focus.
+   • "Interview prep before the interview" → ONE prep block before. NOT three.
+   If the note conflicts with energy/mood advice, the note WINS.
 
-Output schema (one example item shown — your output must be the FULL array of items for the day):
+2. NO FILLER. NO PREP-BLOCK INFLATION.
+   • At most ONE break (10–15 min) between two intensive blocks. Never two breaks back-to-back.
+   • Never replace a user-requested event with a "preparation" or "warm-up" block. If they asked for "Interview at 9pm", you do NOT schedule "Final preparation" at 9pm and push the interview later.
+   • If there's nothing meaningful to schedule for an hour, leave a gap — empty space is fine, the system will handle it.
+   • Don't invent meals, "wind-down", "reflection", or "transition" rituals unless the user actually wants them.
+
+3. WINDOW + BLOCKED + RECURRING.
+   • Schedule ONLY within ${startTime}–${endTime}. Anything outside is discarded.
+   • Blocked times — never overlap: ${bl}.
+   • Recurring activities are inserted AUTOMATICALLY by the system after your reply. Leave their exact slots EMPTY: ${rl}. Don't try to schedule them yourself.
+
+4. OUTPUT FORMAT.
+   • Strict JSON array only. No markdown fences, no prose, no comments.
+   • "category" and "color" are SEPARATE fields. Never put a color name (blue, gray, etc.) in "category".
+
+═══ DESIGN PRINCIPLES (apply only after the hard rules) ═══
+
+- Build around the INTERESTS, specifically. "Reading — finish chapter 3", not "Personal time".
+- Each block's description: 1–2 sentences explaining WHY this, WHY now. Reference the user's actual energy/mood/note when natural. Calm-friend tone, not productivity-bro.
+- For every block, supply 3 "swaps" — alternatives. For hobby/focus blocks, draw from their interests. For meals/breaks, suggest formats (cook vs order, walk vs stretch).
+
+═══ SCHEMA ═══
+
+Each item:
+{
+  "time": "HH:MM",
+  "endTime": "HH:MM",
+  "title": "Short — usually 1–4 words",
+  "description": "1–2 sentence why-this-why-now",
+  "category": one of: "wellness" | "hobby" | "focus" | "task" | "social" | "meal" | "break",
+  "color":    one of: "teal" | "purple" | "blue" | "coral" | "pink" | "amber" | "gray",
+  "type":     one of: "interest" | "task" | "meal" | "break",
+  "swaps":    array of exactly 3 strings
+}
+
+Category ↔ color pairing (pick the matching pair):
+- wellness ↔ teal     • hobby ↔ purple   • focus ↔ blue
+- task ↔ coral        • social ↔ pink    • meal ↔ amber     • break ↔ gray
+
+EXAMPLE output for a person whose note was "Interview at 9pm, prep beforehand":
 [
-  {
-    "time": "08:00",
-    "endTime": "09:00",
-    "title": "Morning run",
-    "description": "Easy 30-min jog. Energy at 7 — comfortable zone-2 pace, save the lungs for the focus block at 10.",
-    "category": "wellness",
-    "color": "teal",
-    "type": "interest",
-    "swaps": ["Yoga flow", "Bodyweight strength", "Walk + podcast"]
-  }
+  {"time":"19:30","endTime":"20:30","title":"Interview prep","description":"One last skim of your notes — you've already done the deep prep, this is just keeping it warm.","category":"task","color":"coral","type":"task","swaps":["Mock-interview yourself","Re-read job description","Quick walk to clear head"]},
+  {"time":"20:30","endTime":"21:00","title":"Wind-down + setup","description":"Tea, water, find a quiet room. Energy 7 — channel it without burning it.","category":"break","color":"gray","type":"break","swaps":["Stretch","Quick walk","Box breathing"]},
+  {"time":"21:00","endTime":"22:00","title":"Interview","description":"This is the moment. You're prepared.","category":"social","color":"pink","type":"task","swaps":[]}
 ]
 
-"category" and "color" are SEPARATE fields. Use the category names below in "category" — do NOT put a color name in "category". The color is just the visual token.
-
-Category → color map (pick category from the LEFT column, color from the RIGHT):
-- wellness → teal   (movement, body, mindfulness)
-- hobby    → purple (creative, leisure, music, gaming, reading)
-- focus    → blue   (deep work, study, coding)
-- task     → coral  (chores, errands, must-dos)
-- social   → pink   (calls, meetups, dates)
-- meal     → amber
-- break    → gray
-
-Type must be one of: "interest" | "task" | "meal" | "break".`;
+Notice: the Interview is at 21:00 because the user said "9pm". One prep block, one wind-down. No three breaks. No "Final preparation" at 22:55.`;
   }
 };
 
