@@ -861,13 +861,26 @@ const GenPage = {
 
   // "Start from now" only makes sense if you're scheduling TODAY. The
   // moment a future date is picked, hide it and force "Pick a time".
+  // Also default the time window to full-day (00:00–23:59) for non-today
+  // schedules — there's no reason to default to 08:00–23:00 when planning
+  // tomorrow; the user usually wants the whole day available.
   _refreshStartOpts(){
     const usePick   = document.getElementById('day-opt-pick').classList.contains('active');
     const pickedDate= document.getElementById('day-date-pick').value;
     const isFuture  = usePick && pickedDate && pickedDate !== U.nowKey();
     const nowBtn    = document.getElementById('start-opt-now');
+    const startInp  = document.getElementById('day-start-pick');
+    const endInp    = document.getElementById('day-end-pick');
     nowBtn.style.display = isFuture ? 'none' : '';
-    if(isFuture) this.startOpt('pick');
+    if(isFuture){
+      this.startOpt('pick');
+      startInp.value = '00:00';
+      endInp.value   = '23:59';
+    } else {
+      // Switching back to today → restore today-friendly defaults
+      startInp.value = '08:00';
+      endInp.value   = '23:00';
+    }
   },
 
   addDayTask(){

@@ -576,6 +576,15 @@ body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-s
   .primary-btn{width:100%;align-items:center}
   .hero-title,.page-title{font-size:30px}
   .card{flex-direction:column;gap:8px;padding:18px}
-  .frow{grid-template-columns:1fr}
+  /* Date/time fields stay side-by-side on phone (was stacking and
+     making the reminder modal twice as tall as it needed to be) */
+  .frow{grid-template-columns:1fr 1fr;gap:8px}
+  /* Tighter modal chrome so it doesn't dominate a phone screen */
+  .modal-hdr{padding:14px 16px}
+  .modal-body{padding:14px 16px;gap:10px}
+  .modal-ftr{padding:12px 16px}
+  .tinput{padding:8px 11px;font-size:13px}
+  .timeinput{padding:8px 9px;font-size:12.5px;width:100%}
+  .tarea{min-height:60px}
   .cal-left{position:relative;top:0;max-height:none}
 }
