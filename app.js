@@ -437,24 +437,37 @@ ABOUT THEM
 - Must-do tasks: ${tasks.length ? tasks.join(', ') : 'none'}
 - Their note: ${note || '(none)'}
 
-THE SYSTEM IS HANDLING THESE — leave their slots empty, don't schedule them yourself:
+THE SYSTEM HANDLES THESE — DO NOT schedule activities at these times. The
+system inserts them automatically after your reply, so just plan around them:
 - Blocked: ${bl}
-- Recurring (today): ${rl}
-- Pinned events (today): ${el}
+- Recurring: ${rl}
+- Pinned events (specific times the user locked): ${el}
+
+YOUR JOB
+Fill the time BETWEEN the system-handled blocks with the user's interests
+and must-do tasks. The user picked these interests for a reason — build them
+into the day. Aim for 4–8 blocks across the active window, sized 30–120 min.
 
 RULES
 - Schedule only within ${startTime}–${endTime}.
-- Build around the interests. Real activities, not "Personal time".
-- No filler titles ("Free time", "Open time", etc). Empty space is fine — leave gaps.
-- At most one 10–15 min break between intensive blocks. No back-to-back breaks. No invented "wind-down" or "reflection" rituals.
-- Each block: a 1–2 sentence description explaining why-this-why-now. Calm tone.
-- Each block: 3 alternative "swaps" drawn from interests (or alt formats for breaks).
+- Use the interests AS titles ("Coding", "Reading", "Gym"), not generic
+  categories. "Personal time" / "Free time" / "Open time" are forbidden.
+- Schedule EVERY must-do task at least once, ideally during high-energy
+  parts of the day. Tasks beat interests for slot priority.
+- Don't leave large open stretches. If there's a 2-hour window between
+  Lunch and the next blocked slot, fill it with an interest or task.
+- One 10–15 min break between two intensive blocks if it helps. Never
+  back-to-back breaks. No invented "wind-down" / "reflection" rituals.
+- Each block: 1–2 sentence "why this, why now" description. Calm tone,
+  reference the energy/mood/note when natural.
+- Each block: 3 swap alternatives from the interests list (or alt formats
+  for breaks like "Walk", "Water", "Stretch").
 
-OUTPUT — strict JSON array. No markdown, no prose:
+OUTPUT — strict JSON array. No markdown, no prose, no comments:
 [
   {
     "time":"HH:MM","endTime":"HH:MM",
-    "title":"1–4 words",
+    "title":"1–4 words (use the interest name)",
     "description":"1–2 sentence why",
     "category":"wellness|hobby|focus|task|social|meal|break",
     "color":"teal|purple|blue|coral|pink|amber|gray",
@@ -558,53 +571,96 @@ const Reconcile = {
 };
 
 /* ─── FALLBACK ─── */
-// Used when no Groq API key is set (or Groq fails). Generates a sparse,
-// honest interest-cycling schedule — NO hardcoded meals, NO "Wind-down"
-// ritual, no padding. Recurring + blocked are merged in by Reconcile so
-// the user's actual Settings drive everything.
+// Used when no Groq API key is set (or Groq fails). Gap-aware: it looks
+// at blocked + recurring + pinned events and only places interest/task
+// blocks in the FREE GAPS between them. Without this, Reconcile drops
+// every Fallback block that overlaps the user's blocked windows and the
+// schedule ends up nearly empty.
 const Fallback = {
-  build(dateKey,startTime,endTime,mood,energy,interests,tasks,blocked,recurring){
+  build(dateKey,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,events){
     const e = energy || 6;
     const i = interests.length ? interests : ['Personal time'];
     const sm = U.t2m(startTime||'07:00'), em = U.t2m(endTime||'22:30');
 
-    // Block size scales with energy: low=45m, mid=60m, high=90m
     const blockMin = e <= 3 ? 45 : e >= 7 ? 90 : 60;
     const breakMin = 15;
+    const minSlot  = 30;
 
-    // Cycle: must-do tasks first, then interests in priority order
+    // 1. Compute occupied ranges within the active window.
+    //    Blocked + recurring + pinned events all reserve time.
+    const occupied = [];
+    const addRange = (s, en) => {
+      const a = Math.max(s, sm), b = Math.min(en, em);
+      if(a < b) occupied.push([a, b]);
+    };
+    (blocked||[]).forEach(b => {
+      const s = U.t2m(b.start), en = U.t2m(b.end);
+      if(s <= en) addRange(s, en);
+      else { addRange(s, 1440); addRange(0, en); } // cross-midnight
+    });
+    (recurring||[]).forEach(r => addRange(U.t2m(r.start), U.t2m(r.end)));
+    (events||[]).forEach(ev => addRange(U.t2m(ev.time), U.t2m(ev.time) + (ev.durationMin||60)));
+
+    // 2. Sort + merge overlapping ranges.
+    occupied.sort((a,b) => a[0] - b[0]);
+    const merged = [];
+    occupied.forEach(([s,en]) => {
+      if(merged.length && s <= merged[merged.length-1][1]){
+        merged[merged.length-1][1] = Math.max(merged[merged.length-1][1], en);
+      } else {
+        merged.push([s, en]);
+      }
+    });
+
+    // 3. Free gaps = window minus occupied.
+    const gaps = [];
+    let cur = sm;
+    merged.forEach(([s,en]) => {
+      if(s > cur) gaps.push([cur, s]);
+      cur = Math.max(cur, en);
+    });
+    if(cur < em) gaps.push([cur, em]);
+
+    // 4. Queue: must-do tasks first (priority), then interests in order.
     const queue = [
-      ...tasks.map(t => ({ title:t, type:'task',     color:'coral',  category:'task',  desc:`Must-do: ${t}.` })),
-      ...i.map(name => ({  title:name, type:'interest', color:'purple', category:'hobby', desc:`Time for ${name}.` }))
+      ...(tasks||[]).map(t => ({ title:t, type:'task',     color:'coral',  category:'task',  desc:`Must-do: ${t}.` })),
+      ...i.map(name => ({         title:name, type:'interest', color:'purple', category:'hobby', desc:`Time for ${name}.` }))
     ];
 
+    // 5. Walk gaps in chronological order, placing one queue item per
+    //    block until the queue is exhausted or no gap is large enough.
     const slots = [];
-    let cur = sm;
     let qIdx = 0;
-    while(cur + blockMin <= em && qIdx < queue.length){
-      const item = queue[qIdx++];
-      const bStart = cur, bEnd = cur + blockMin;
-      slots.push({
-        time:U.fmtMin(bStart), endTime:U.fmtMin(bEnd),
-        title:item.title, description:item.desc,
-        category:item.category, color:item.color, type:item.type,
-        swaps:i.filter(x => x !== item.title).slice(0,3),
-        done:false
-      });
-      cur = bEnd;
-      // Insert a break between blocks (skip the trailing one if no time / no more items)
-      if(cur + breakMin <= em && qIdx < queue.length){
+    for(const [gStart, gEnd] of gaps){
+      if(gEnd - gStart < minSlot) continue;
+      let pos = gStart;
+      while(pos + minSlot <= gEnd && qIdx < queue.length){
+        const remaining = gEnd - pos;
+        const blockLen  = Math.min(blockMin, remaining);
+        const item = queue[qIdx++];
         slots.push({
-          time:U.fmtMin(cur), endTime:U.fmtMin(cur+breakMin),
-          title:'Break', description:'Stretch, water, look outside.',
-          category:'break', color:'gray', type:'break',
-          swaps:['Walk','Water','Look outside'], done:false
+          time:U.fmtMin(pos), endTime:U.fmtMin(pos+blockLen),
+          title:item.title, description:item.desc,
+          category:item.category, color:item.color, type:item.type,
+          swaps:i.filter(x => x !== item.title).slice(0,3),
+          done:false
         });
-        cur += breakMin;
+        pos += blockLen;
+        // Drop in a break only if there's room for it AND another full block
+        if(pos + breakMin + minSlot <= gEnd && qIdx < queue.length){
+          slots.push({
+            time:U.fmtMin(pos), endTime:U.fmtMin(pos+breakMin),
+            title:'Break', description:'Stretch, water, look outside.',
+            category:'break', color:'gray', type:'break',
+            swaps:['Walk','Water','Look outside'], done:false
+          });
+          pos += breakMin;
+        }
       }
+      if(qIdx >= queue.length) break;
     }
 
-    return Reconcile.apply(slots, recurring, blocked, U.fmtMin(sm), U.fmtMin(em));
+    return Reconcile.apply(slots, recurring, blocked, U.fmtMin(sm), U.fmtMin(em), events);
   }
 };
 
@@ -924,8 +980,10 @@ const GenPage = {
       const merged = Reconcile.apply(sched.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, events);
       s.schedules[dateKey] = merged;
     } catch(e){
-      const fallback = Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec);
-      s.schedules[dateKey] = Reconcile.apply(fallback, [], [], startTime, endTime, events);
+      // Fallback is now gap-aware — it places interest/task blocks only in
+      // the FREE GAPS between blocked + recurring + pinned events, so we
+      // don't end up with everything Reconcile-dropped.
+      s.schedules[dateKey] = Fallback.build(dateKey,startTime,endTime,mood,energy,s.interests,tasks,s.blocked,rec,events);
       U.toast(e.message?.includes('API key')?'Using smart fallback (add Groq key for AI generation).':'AI failed — using smart fallback.');
     }
 
@@ -1169,7 +1227,7 @@ const CalPage = {
       const ns=await AI.call(prompt,{startTime,endTime,blocked:s.blocked});
       s.schedules[dk] = Reconcile.apply(ns.map(x=>({...x,done:false})), rec, s.blocked, startTime, endTime, []);
     } catch(e){
-      s.schedules[dk]=Fallback.build(dk,startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec);
+      s.schedules[dk]=Fallback.build(dk,startTime,endTime,mood,s.energy,s.interests,s.tasks,s.blocked,rec,[]);
     }
     Store.save();
     this._renderDayDetail(dk);
