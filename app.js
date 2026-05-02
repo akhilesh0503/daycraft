@@ -373,9 +373,9 @@ const AI = {
     const COLOR_TO_CAT={teal:'wellness',purple:'hobby',blue:'focus',coral:'task',pink:'social',amber:'meal',gray:'break'};
     // Generic filler titles the model leans on when it has nothing to say.
     // Reject these so empty stretches stay empty instead of becoming
-    // "Free time 750 min" type garbage.
-    const FILLER = /^\s*(free|personal|open|spare|empty|leisure|chill|relax|downtime)\s+(time|block|hour|hours)\s*$/i;
-    const MAX_BLOCK_MIN = 150;
+    // "Free time 750 min" type garbage. Only matches when the WHOLE title
+    // is one of these phrases — "Reading time" stays, "Free time" goes.
+    const FILLER = /^\s*(free|personal|open|spare|empty|leisure|chill|relax)\s+(time|block|hour|hours)\s*$|^\s*downtime\s*$/i;
     const sm = ctx?.startTime ? U.t2m(ctx.startTime) : 0;
     const em = ctx?.endTime   ? U.t2m(ctx.endTime)   : 1440;
     const blocked = ctx?.blocked || [];
@@ -397,9 +397,6 @@ const AI = {
       if(hitsBlocked(it.time,it.endTime)) continue;
       // Drop generic filler ("Free time 750 min" type garbage)
       if(FILLER.test(String(it.title))) continue;
-      // Cap absurdly long blocks — the model occasionally tries to fill
-      // an entire afternoon with one block. Drop instead of squashing.
-      if(b - a > MAX_BLOCK_MIN) continue;
       // If the model dropped a color name into category, swap it for the
       // proper human label — never show "blue" / "gray" / "teal" as a tag.
       let category = hasStr(it.category) ? String(it.category).toLowerCase().slice(0,40) : 'general';
