@@ -384,14 +384,14 @@
       </div>
       <div class="gen-section">
         <h3 class="gen-section-title">End time</h3>
-        <input type="time" id="day-end-pick" class="timeinput" value="23:00">
+        <input type="time" id="day-end-pick" class="timeinput" value="23:59">
       </div>
       <div class="gen-section">
         <h3 class="gen-section-title">Time-sensitive events <span class="badge-opt">Optional</span></h3>
         <p class="gen-section-hint">Lock specific events to specific times. These take priority over your blocked times and recurring activities — your "today" beats your defaults. The AI plans the rest of the day around them.</p>
         <div class="ts-row">
           <input type="text" id="ts-title" class="tinput" placeholder="Task (e.g. Interview, Movies)" onkeydown="if(event.key==='Enter')GenPage.addTimeEvent()">
-          <input type="time" id="ts-time" class="timeinput">
+          <input type="time" id="ts-time" class="timeinput" value="12:00">
           <select id="ts-duration" class="tinput sel" title="Duration">
             <option value="30">30 min</option>
             <option value="60" selected>1 hr</option>

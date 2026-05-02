@@ -884,7 +884,7 @@ const GenPage = {
     } else {
       // Switching back to today → restore today-friendly defaults
       startInp.value = '08:00';
-      endInp.value   = '23:00';
+      endInp.value   = '23:59';
     }
   },
 
@@ -912,7 +912,7 @@ const GenPage = {
     this._dayEvents.push({ title, time, durationMin: dur });
     this._dayEvents.sort((a,b) => U.t2m(a.time) - U.t2m(b.time));
     document.getElementById('ts-title').value = '';
-    document.getElementById('ts-time').value  = '';
+    document.getElementById('ts-time').value  = '12:00';
     this._renderTimeEvents();
   },
   _renderTimeEvents(){
@@ -955,7 +955,7 @@ const GenPage = {
         if(U.t2m(startTime)<now){ U.toast("Start time can't be before current time for today."); return; }
       }
     }
-    const endTime=document.getElementById('day-end-pick').value||'23:00';
+    const endTime=document.getElementById('day-end-pick').value||'23:59';
     const mood=document.getElementById('day-mood').value||s.mood;
     const energy=parseInt(document.getElementById('day-energy').value)||s.energy||6;
     const tasks=[...s.tasks,...this._dayTasks];
