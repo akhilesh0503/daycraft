@@ -316,18 +316,44 @@ const AI = {
   async call(prompt, ctx){
     const apiKey=Store.get().apiKey;
     if(!apiKey) throw new Error('No API key');
-    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+    const doFetch = () => fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
       body:JSON.stringify({
-        model:'llama-3.3-70b-versatile', temperature:0.7, max_tokens:4000,
+        model:'llama-3.3-70b-versatile', temperature:0.7, max_tokens:3000,
         messages:[
           {role:'system',content:'You are a personal day scheduler. Respond ONLY with a valid JSON array. No markdown, no backticks, no extra text.'},
           {role:'user',content:prompt}
         ]
       })
     });
-    if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e?.error?.message||`Groq ${res.status}`); }
+
+    // Up to 4 attempts with progressive backoff on 429 (rate limit) and 5xx.
+    // Groq's free tier has a tight tokens-per-minute budget; for week
+    // generation we hit it around day 3. The Retry-After header tells us
+    // exactly how long to wait — respect it, but cap each wait at 15s.
+    const MAX_TRIES = 4;
+    let res, lastErr;
+    for(let attempt = 1; attempt <= MAX_TRIES; attempt++){
+      res = await doFetch();
+      if(res.ok) break;
+      const isRetryable = res.status === 429 || (res.status >= 500 && res.status < 600);
+      if(!isRetryable || attempt === MAX_TRIES){
+        const e = await res.json().catch(()=>({}));
+        lastErr = e?.error?.message || `Groq ${res.status}`;
+        break;
+      }
+      // Wait — respect server's Retry-After if present, else backoff
+      const headerRA = parseFloat(res.headers.get('retry-after') || '0');
+      const backoff = Math.min(15000, Math.max(headerRA * 1000, attempt * 2000));
+      const sub = document.getElementById('gen-loading-sub');
+      const prev = sub?.textContent;
+      if(sub) sub.textContent = `Rate-limited — waiting ${Math.ceil(backoff/1000)}s (try ${attempt}/${MAX_TRIES-1})...`;
+      await new Promise(r => setTimeout(r, backoff));
+      if(sub && prev) sub.textContent = prev;
+    }
+
+    if(!res || !res.ok) throw new Error(lastErr || 'Groq request failed');
     const data=await res.json();
     const raw=data.choices[0].message.content;
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
@@ -1003,6 +1029,10 @@ const GenPage = {
     this._showLoading(true,'Generating your week...','Starting with day 1');
 
     for(let i=0;i<dateKeys.length;i++){
+      // Pace requests: stagger 1.2s between days so we don't blow the
+      // free-tier TPM budget. AI.call has its own retry on 429 too, this
+      // just keeps us out of trouble in the first place.
+      if(i > 0) await new Promise(r => setTimeout(r, 1200));
       const dk=dateKeys[i];
       document.getElementById('gen-loading-sub').textContent=`Day ${i+1}/${days}: ${U.dayName(dk)}`;
       const dow=U.dowNum(dk);
