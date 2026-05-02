@@ -401,7 +401,6 @@ const AI = {
     return final.length?final:null;
   },
   prompt(dayLabel,startTime,endTime,mood,energy,interests,tasks,blocked,recurring,isWeekend,userNote,events){
-    const fmtRange = arr => arr.length ? arr.map(x=>`"${x.title||x.label}" ${x.time||x.start}${x.durationMin?` (${x.durationMin}min)`:''}${x.end?`–${x.end}`:''}`).join(', ') : 'none';
     const bl = blocked.length ? blocked.map(b=>`"${b.label}" ${b.start}–${b.end}`).join(', ') : 'none';
     const rl = recurring.length ? recurring.map(r=>`"${r.label}" ${r.start}–${r.end}`).join(', ') : 'none';
     const el = (events||[]).length ? (events||[]).map(e=>`"${e.title}" ${e.time} (${e.durationMin||60}min)`).join(', ') : 'none';
@@ -454,14 +453,37 @@ Pair category↔color: wellness↔teal · hobby↔purple · focus↔blue · task
 // two segments and the visible portion that falls inside the active
 // window is inserted.
 const Reconcile = {
-  // Priority (strongest → weakest): blocked > userEvents > recurring > AI items.
-  // userEvents come from the new Time-sensitive events UI: {title, time, durationMin}.
+  // Priority (strongest → weakest): userEvents > blocked > recurring > AI items.
+  // The user's pinned events for TODAY beat their default blocks (yesterday's
+  // "Dinner blocked 8–9:30pm" loses to "Cricket 8–10pm pinned for today"),
+  // because today's explicit signal overrides the habitual default.
+  // userEvents come from the Time-sensitive events UI: {title, time, durationMin}.
   apply(sched, recurring, blocked, startTime, endTime, userEvents){
     const sm = U.t2m(startTime), em = U.t2m(endTime);
     const t2 = U.t2m;
     const ovlp = (a,b,c,d) => t2(a) < t2(d) && t2(b) > t2(c);
     let out = sched.slice();
 
+    // 1. User-pinned events first — they win over everything else.
+    (userEvents||[]).forEach(ev => {
+      if(!ev||!ev.time) return;
+      const dur = ev.durationMin || 60;
+      const visStart = Math.max(t2(ev.time), sm);
+      const visEnd   = Math.min(t2(ev.time) + dur, em);
+      if(visStart >= visEnd) return;
+      const vs = U.fmtMin(visStart), ve = U.fmtMin(visEnd);
+      // Drop ALL conflicting items (incl. blocked — pinned overrides default)
+      out = out.filter(it => !ovlp(it.time, it.endTime, vs, ve));
+      out.push({
+        time:vs, endTime:ve,
+        title:ev.title || 'Event',
+        description:'Pinned by you for this time.',
+        category:'task', color:'coral', type:'task',
+        swaps:[], done:false, _pinned:true
+      });
+    });
+
+    // 2. Blocked — but abstain if a pinned event already occupies the slot.
     (blocked||[]).forEach(b => {
       if(!b||!b.start||!b.end) return;
       const s = t2(b.start), e = t2(b.end);
@@ -472,7 +494,10 @@ const Reconcile = {
         const visEnd   = Math.min(re, em);
         if(visStart >= visEnd) return; // no overlap with the active window
         const vs = U.fmtMin(visStart), ve = U.fmtMin(visEnd);
-        out = out.filter(it => !ovlp(it.time, it.endTime, vs, ve));
+        // If a pinned event covers any of this blocked range, the user
+        // is overriding the default — drop the entire blocked segment.
+        if(out.some(it => it._pinned && ovlp(it.time, it.endTime, vs, ve))) return;
+        out = out.filter(it => it._pinned || !ovlp(it.time, it.endTime, vs, ve));
         out.push({
           time:vs, endTime:ve,
           title:b.label||'Blocked',
@@ -483,31 +508,7 @@ const Reconcile = {
       });
     });
 
-    // User-pinned events (Time-sensitive events on the Generate page).
-    // Stronger than recurring: today the user said "Interview at 9pm" — that
-    // beats the habitual "Gym at 7am" if they collide. Loses only to blocked.
-    // Tagged with _pinned=true so recurring can detect them specifically
-    // (instead of conflating with AI-generated tasks).
-    (userEvents||[]).forEach(ev => {
-      if(!ev||!ev.time) return;
-      const dur = ev.durationMin || 60;
-      const visStart = Math.max(t2(ev.time), sm);
-      const visEnd   = Math.min(t2(ev.time) + dur, em);
-      if(visStart >= visEnd) return;
-      const vs = U.fmtMin(visStart), ve = U.fmtMin(visEnd);
-      // Abstain entirely if blocked occupies the slot — blocked wins.
-      if(out.some(it => it.type === 'blocked' && ovlp(it.time, it.endTime, vs, ve))) return;
-      // Drop any conflicting non-blocked items.
-      out = out.filter(it => it.type === 'blocked' || !ovlp(it.time, it.endTime, vs, ve));
-      out.push({
-        time:vs, endTime:ve,
-        title:ev.title || 'Event',
-        description:'Pinned by you for this time.',
-        category:'task', color:'coral', type:'task',
-        swaps:[], done:false, _pinned:true
-      });
-    });
-
+    // 3. Recurring — abstain if blocked or pinned occupies the slot.
     (recurring||[]).forEach(r => {
       if(!r||!r.start||!r.end) return;
       const visStart = Math.max(t2(r.start), sm);
@@ -516,7 +517,7 @@ const Reconcile = {
       const vs = U.fmtMin(visStart), ve = U.fmtMin(visEnd);
       // Already at this exact slot? skip (avoid dup if AI happened to comply)
       if(out.some(it => it.title === r.label && it.time === vs && it.endTime === ve)) return;
-      // Blocked or pinned-event in the slot — recurring abstains for today.
+      // Blocked or pinned in the slot — recurring abstains for today.
       if(out.some(it => (it.type === 'blocked' || it._pinned) && ovlp(it.time, it.endTime, vs, ve))) return;
       // Otherwise: drop conflicting AI items, then insert.
       out = out.filter(it => it.type === 'blocked' || it._pinned || !ovlp(it.time, it.endTime, vs, ve));
